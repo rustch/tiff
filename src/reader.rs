@@ -13,12 +13,13 @@ pub struct Reader<R> {
 
 impl<R: Read + Seek> Reader<R> {
     pub fn new(mut reader: R) -> Result<Reader<R>> {
-        let mut order_raw = [0, 0];
-        reader.read_exact(&mut order_raw)?;
-        let magic_number = u16::to_be(u16::from_bytes(order_raw));
 
-        // TIFF
-        let order = match magic_number {
+        // Check order raw validation
+        let mut order_bytes = [0, 0];
+        reader.read_exact(&mut order_bytes)?; 
+        
+        let order_raw = u16::to_be(u16::from_bytes(order_bytes));
+        let order = match order_raw {
             TIFF_LE => Endian::Little,
             TIFF_BE => Endian::Big,
             _ => {
@@ -65,7 +66,7 @@ mod tests {
     use super::*;
     use ifd::IFD;
     use std::io::Cursor;
-    
+
     #[test]
     fn test_iter_creation() {
 

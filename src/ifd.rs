@@ -1,31 +1,17 @@
 use endian::*;
-use std::io::{BufReader, Read, Result, Seek, SeekFrom};
+use std::io::{Read, Result, Seek, SeekFrom};
 use std::iter::Iterator;
-
-enum IFDValue {
-    Byte(u8),
-    Ascii([u8; 8]),
-    Short(u16),
-    Long(u32),
-    Rational{ num: u32, denum: u32 },
-    SByte(i8),
-    Undefined(u8),
-    SShort(i16),
-    SLong(i32),
-    SRational{ num: i32, denum: i32 },
-    Float(f32),
-    Double(f64),
-}
+use tag::Tag;
 
 #[derive(Debug)]
-enum IFDType {
+pub enum IFDType {
     Byte,
     Ascii,
     Short,
     Long,
     Rational,
     SByte,
-    Undefined(u16),
+    Undefined,
     SShort,
     SLong,
     SRational,
@@ -42,20 +28,19 @@ impl IFDType {
             4 => IFDType::Long,
             5 => IFDType::Rational,
             6 => IFDType::SByte,
-            7 => IFDType::Undefined(7),
+            7 => IFDType::Undefined,
             8 => IFDType::SShort,
             9 => IFDType::SLong,
             10 => IFDType::SRational,
             11 => IFDType::Float,
             12 => IFDType::Double,
-            _ => IFDType::Undefined(value),
+            _ => IFDType::Undefined,
         }
     }
 }
 
 /// An `IFDEntry` represents an **image file directory**
 /// mentionned inside the tiff specification. This is the base
-/// l
 #[derive(Debug)]
 pub struct IFDEntry {
     tag: u16,

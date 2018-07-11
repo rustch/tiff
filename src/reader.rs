@@ -1,13 +1,15 @@
 use endian::Endian;
-use ifd::{IFDIterator, IFD};
+use ifd::{IFDEntry, IFDIterator, IFD};
+use std::collections::HashMap;
 use std::io::{Error, ErrorKind, Read, Result, Seek};
+use tag::Tag;
 const TIFF_LE: u16 = 0x4949;
 const TIFF_BE: u16 = 0x4D4D;
 
 pub struct Reader<R> {
     inner: R,
     order: Endian,
-    ifds: Vec<IFD>,
+    entries_map: HashMap<Tag, IFDEntry>,
 }
 
 impl<R: Read + Seek> Reader<R> {
@@ -46,17 +48,20 @@ impl<R: Read + Seek> Reader<R> {
             Endian::Little => u32::from_le(u32::from_bytes(offset_bytes)),
         };
 
-        let ifds = IFDIterator::new(&mut reader, order, offset as usize).collect();
+        let map = IFDIterator::new(&mut reader, order, offset as usize)
+            .flat_map(move |e| (e.entries()))
+            .map(move |e| (e.tag(), *e))
+            .collect();
 
         Ok(Reader {
             inner: reader,
             order: order,
-            ifds: ifds,
+            entries_map: map,
         })
     }
 
-    pub fn ifds(&self) -> &Vec<IFD> {
-        return &self.ifds;
+    pub fn entries_map(&self) -> &HashMap<Tag, IFDEntry> {
+        return &self.entries_map;
     }
 }
 

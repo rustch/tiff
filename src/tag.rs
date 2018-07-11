@@ -6,7 +6,7 @@ macro_rules! tags_definition {
     {$(
         $name:ident | $value:expr => $desc:expr,
     )*} => {
-        #[derive(Debug)]
+        #[derive(Debug, Copy, Clone, Hash)]
         pub enum Tag {
             $($name,)*
             Unknown(u16)

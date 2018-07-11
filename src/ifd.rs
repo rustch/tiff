@@ -1,9 +1,9 @@
 use endian::*;
+use std::borrow::Cow;
+use std::convert::From;
 use std::io::{Read, Result, Seek, SeekFrom};
 use std::iter::Iterator;
 use tag::Tag;
-use std::borrow::Cow;
-use std::convert::From;
 
 #[derive(Debug, Copy, Clone)]
 pub enum IFDValueType {
@@ -48,14 +48,25 @@ pub struct IFDEntry {
     tag: Tag,
     value_type: IFDValueType,
     count: u32,
-    value_offset: u32
+    value_offset: u32,
+}
+
+impl IFDEntry {
+    pub fn tag(&self) -> Tag {
+        return self.tag;
+    }
 }
 
 #[derive(Debug)]
 pub struct IFD {
-    entry_count: u16,
     entries: Vec<IFDEntry>,
     next: usize,
+}
+
+impl IFD {
+    pub fn entries(&self) -> &Vec<IFDEntry> {
+        return &self.entries;
+    }
 }
 
 pub struct IFDIterator<'a, R: 'a> {
@@ -65,9 +76,11 @@ pub struct IFDIterator<'a, R: 'a> {
     endian: Endian,
 }
 
-impl<'a, R: Read + Seek> IFDIterator<'a,  R> where R: 'a {
+impl<'a, R: Read + Seek> IFDIterator<'a, R>
+where
+    R: 'a,
+{
     pub fn new(reader: &'a mut R, endian: Endian, first_ifd_offset: usize) -> IFDIterator<R> {
-        
         reader.seek(SeekFrom::Start(0));
 
         IFDIterator {
@@ -103,7 +116,7 @@ impl<'a, R: Read + Seek> Iterator for IFDIterator<'a, R> {
         } else {
             SeekFrom::Current(self.position as i64)
         };
-        
+
         self.position = self.reader.seek(next).ok()? as usize;
 
         // Read Count
@@ -134,7 +147,6 @@ impl<'a, R: Read + Seek> Iterator for IFDIterator<'a, R> {
         let next = self.read_u32().ok()?;
 
         Some(IFD {
-            entry_count: entry_count,
             entries: vec,
             next: next as usize,
         })

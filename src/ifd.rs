@@ -2,9 +2,11 @@ use endian::*;
 use std::io::{Read, Result, Seek, SeekFrom};
 use std::iter::Iterator;
 use tag::Tag;
+use std::borrow::Cow;
+use std::convert::From;
 
-#[derive(Debug)]
-pub enum IFDType {
+#[derive(Debug, Copy, Clone)]
+pub enum IFDValueType {
     Byte,
     Ascii,
     Short,
@@ -19,22 +21,22 @@ pub enum IFDType {
     Double,
 }
 
-impl IFDType {
-    fn from_int(value: u16) -> IFDType {
+impl IFDValueType {
+    fn from_int(value: u16) -> IFDValueType {
         match value {
-            1 => IFDType::Byte,
-            2 => IFDType::Ascii,
-            3 => IFDType::Short,
-            4 => IFDType::Long,
-            5 => IFDType::Rational,
-            6 => IFDType::SByte,
-            7 => IFDType::Undefined,
-            8 => IFDType::SShort,
-            9 => IFDType::SLong,
-            10 => IFDType::SRational,
-            11 => IFDType::Float,
-            12 => IFDType::Double,
-            _ => IFDType::Undefined,
+            1 => IFDValueType::Byte,
+            2 => IFDValueType::Ascii,
+            3 => IFDValueType::Short,
+            4 => IFDValueType::Long,
+            5 => IFDValueType::Rational,
+            6 => IFDValueType::SByte,
+            7 => IFDValueType::Undefined,
+            8 => IFDValueType::SShort,
+            9 => IFDValueType::SLong,
+            10 => IFDValueType::SRational,
+            11 => IFDValueType::Float,
+            12 => IFDValueType::Double,
+            _ => IFDValueType::Undefined,
         }
     }
 }
@@ -43,10 +45,10 @@ impl IFDType {
 /// mentionned inside the tiff specification. This is the base
 #[derive(Debug)]
 pub struct IFDEntry {
-    tag: u16,
-    value_type: IFDType,
+    tag: Tag,
+    value_type: IFDValueType,
     count: u32,
-    value_offset: u32,
+    value_offset: u32
 }
 
 #[derive(Debug)]
@@ -63,8 +65,8 @@ pub struct IFDIterator<'a, R: 'a> {
     endian: Endian,
 }
 
-impl<'a, R: 'a + Read + Seek> IFDIterator<'a, R> {
-    pub fn new(reader: &'a mut R, endian: Endian, first_ifd_offset: usize) -> IFDIterator<'a, R> {
+impl<'a, R: Read + Seek> IFDIterator<'a,  R> where R: 'a {
+    pub fn new(reader: &'a mut R, endian: Endian, first_ifd_offset: usize) -> IFDIterator<R> {
         
         reader.seek(SeekFrom::Start(0));
 
@@ -91,7 +93,7 @@ impl<'a, R: 'a + Read + Seek> IFDIterator<'a, R> {
     }
 }
 
-impl<'a, R: Read + Seek> Iterator for IFDIterator<'a, R> where R: 'a {
+impl<'a, R: Read + Seek> Iterator for IFDIterator<'a, R> {
     type Item = IFD;
 
     fn next(&mut self) -> Option<IFD> {
@@ -113,16 +115,14 @@ impl<'a, R: Read + Seek> Iterator for IFDIterator<'a, R> where R: 'a {
 
             // Type
             let value_type_raw = self.read_u16().ok()?;
-            let value_type = IFDType::from_int(value_type_raw);
+            let value_type = IFDValueType::from_int(value_type_raw);
 
             // Count
             let count = self.read_u32().ok()?;
-
-            // Value Offset
             let value_offset = self.read_u32().ok()?;
 
             let entry = IFDEntry {
-                tag: tag,
+                tag: Tag::from(tag),
                 value_type: value_type,
                 count: count,
                 value_offset: value_offset,

@@ -1,23 +1,21 @@
 use endian::Endian;
-use ifd::IFDIterator;
+use ifd::{IFDIterator, IFD};
 use std::io::{Error, ErrorKind, Read, Result, Seek};
-
 const TIFF_LE: u16 = 0x4949;
 const TIFF_BE: u16 = 0x4D4D;
 
 pub struct Reader<R> {
     inner: R,
     order: Endian,
-    first_ifd_offset: usize,
+    ifds: Vec<IFD>,
 }
 
 impl<R: Read + Seek> Reader<R> {
     pub fn new(mut reader: R) -> Result<Reader<R>> {
-
         // Check order raw validation
         let mut order_bytes = [0, 0];
-        reader.read_exact(&mut order_bytes)?; 
-        
+        reader.read_exact(&mut order_bytes)?;
+
         let order_raw = u16::to_be(u16::from_bytes(order_bytes));
         let order = match order_raw {
             TIFF_LE => Endian::Little,
@@ -48,36 +46,39 @@ impl<R: Read + Seek> Reader<R> {
             Endian::Little => u32::from_le(u32::from_bytes(offset_bytes)),
         };
 
+        let ifds = IFDIterator::new(&mut reader, order, offset as usize).collect();
+
         Ok(Reader {
             inner: reader,
             order: order,
-            first_ifd_offset: offset as usize,
+            ifds: ifds,
         })
     }
 
-    pub fn ifd_iter(&mut self) -> IFDIterator<R> {
-        IFDIterator::new(&mut self.inner, self.order, self.first_ifd_offset)
-    }   
+    pub fn ifds(&self) -> &Vec<IFD> {
+        return &self.ifds;
+    }
 }
 
 #[cfg(test)]
 mod tests {
 
     use super::*;
-    use ifd::IFD;
     use std::io::Cursor;
 
     #[test]
     fn test_iter_creation() {
-
         let bytes: &[u8] = include_bytes!("../samples/arbitro_be.tiff");
         let mut cursor = Cursor::new(bytes);
-        let mut read = Reader::new(&mut cursor).unwrap();
+        let read = Reader::new(&mut cursor).unwrap();
 
         assert_eq!(read.order, Endian::Big);
 
-        let elements: Vec<IFD> = read.ifd_iter().collect();
+        let elements = read.ifds();
+
+        for el in elements {
+            println!("Element: {:?}", el);
+        }
         assert!(elements.len() > 0);
-        
     }
 }

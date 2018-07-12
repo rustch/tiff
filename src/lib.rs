@@ -1,6 +1,5 @@
-#![feature(int_to_from_bytes)]
+extern crate byteorder;
 
-mod endian;
-mod tag;
 mod ifd;
-mod reader;
+pub mod reader;
+mod tag;

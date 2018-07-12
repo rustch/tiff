@@ -1,10 +1,25 @@
-use endian::*;
-use std::borrow::Cow;
+use byteorder::{ByteOrder, ReadBytesExt};
+use std::collections::HashMap;
 use std::convert::From;
-use std::io::{Read, Result, Seek, SeekFrom};
+use std::io::{Read, Seek, SeekFrom};
 use std::iter::Iterator;
+use std::marker::PhantomData;
 use tag::Tag;
 
+pub enum IFDValueBag {
+    Byte(Vec<u8>),
+    Ascii(Vec<u8>),
+    Short,
+    Long,
+    Rational,
+    SByte,
+    Undefined,
+    SShort,
+    SLong,
+    SRational,
+    Float,
+    Double,
+}
 #[derive(Debug, Copy, Clone)]
 pub enum IFDValueType {
     Byte,
@@ -45,68 +60,48 @@ impl IFDValueType {
 /// mentionned inside the tiff specification. This is the base
 #[derive(Debug)]
 pub struct IFDEntry {
-    tag: Tag,
-    value_type: IFDValueType,
-    count: u32,
-    value_offset: u32,
-}
-
-impl IFDEntry {
-    pub fn tag(&self) -> Tag {
-        return self.tag;
-    }
+    pub tag: Tag,
+    pub value_type: IFDValueType,
+    pub count: u32,
+    pub value_offset: u32,
 }
 
 #[derive(Debug)]
 pub struct IFD {
-    entries: Vec<IFDEntry>,
+    entries: HashMap<Tag, IFDEntry>,
     next: usize,
 }
 
 impl IFD {
-    pub fn entries(&self) -> &Vec<IFDEntry> {
-        return &self.entries;
+    pub fn get_entry_from_tag(&self, tag: Tag) -> Option<&IFDEntry> {
+        self.entries.get(&tag)
     }
 }
 
-pub struct IFDIterator<'a, R: 'a> {
+pub struct IFDIterator<'a, R: 'a, T> {
     reader: &'a mut R,
     first_entry: usize,
     position: usize,
-    endian: Endian,
+    endian: PhantomData<T>,
 }
 
-impl<'a, R: Read + Seek> IFDIterator<'a, R>
+impl<'a, R: Read + Seek, T: ByteOrder> IFDIterator<'a, R, T>
 where
     R: 'a,
 {
-    pub fn new(reader: &'a mut R, endian: Endian, first_ifd_offset: usize) -> IFDIterator<R> {
-        reader.seek(SeekFrom::Start(0));
+    pub fn new(reader: &'a mut R, first_ifd_offset: usize) -> IFDIterator<R, T> {
+        reader.seek(SeekFrom::Start(0)).ok();
 
         IFDIterator {
             reader: reader,
             first_entry: first_ifd_offset,
-            endian: endian,
             position: 0,
+            endian: PhantomData,
         }
-    }
-
-    fn read_u16(&mut self) -> Result<u16> {
-        let mut buf: [u8; 2] = [0; 2];
-        self.reader.read_exact(&mut buf)?;
-        self.position += 2;
-        Ok(read_u16_from_endian(&self.endian, buf))
-    }
-
-    fn read_u32(&mut self) -> Result<u32> {
-        let mut buf: [u8; 4] = [0; 4];
-        self.reader.read_exact(&mut buf)?;
-        self.position += 4;
-        Ok(read_u32_from_endian(&self.endian, buf))
     }
 }
 
-impl<'a, R: Read + Seek> Iterator for IFDIterator<'a, R> {
+impl<'a, R: Read + Seek, T: ByteOrder> Iterator for IFDIterator<'a, R, T> {
     type Item = IFD;
 
     fn next(&mut self) -> Option<IFD> {
@@ -120,34 +115,35 @@ impl<'a, R: Read + Seek> Iterator for IFDIterator<'a, R> {
         self.position = self.reader.seek(next).ok()? as usize;
 
         // Read Count
-        let entry_count = self.read_u16().ok()?;
-        let mut vec = Vec::<IFDEntry>::with_capacity(entry_count as usize);
+        let entry_count = self.reader.read_u16::<T>().ok()?;
+        let mut map = HashMap::<Tag, IFDEntry>::new();
         for _i in 0..entry_count {
             // Tag
-            let tag = self.read_u16().ok()?;
+            let tag = self.reader.read_u16::<T>().ok()?;
 
             // Type
-            let value_type_raw = self.read_u16().ok()?;
+            let value_type_raw = self.reader.read_u16::<T>().ok()?;
             let value_type = IFDValueType::from_int(value_type_raw);
 
             // Count
-            let count = self.read_u32().ok()?;
-            let value_offset = self.read_u32().ok()?;
+            let count = self.reader.read_u32::<T>().ok()?;
+            let value_offset = self.reader.read_u32::<T>().ok()?;
 
+            let tag_value = Tag::from(tag);
             let entry = IFDEntry {
-                tag: Tag::from(tag),
+                tag: tag_value,
                 value_type: value_type,
                 count: count,
                 value_offset: value_offset,
             };
 
-            vec.push(entry);
+            map.insert(tag_value, entry);
         }
 
-        let next = self.read_u32().ok()?;
+        let next = self.reader.read_u32::<T>().ok()?;
 
         Some(IFD {
-            entries: vec,
+            entries: map,
             next: next as usize,
         })
     }

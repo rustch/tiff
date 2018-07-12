@@ -1,38 +1,34 @@
-use endian::Endian;
-use ifd::{IFDEntry, IFDIterator, IFD};
-use std::collections::HashMap;
+use byteorder::{BigEndian, LittleEndian, ReadBytesExt};
+use ifd::{IFDIterator, IFD};
 use std::io::{Error, ErrorKind, Read, Result, Seek};
-use tag::Tag;
+
 const TIFF_LE: u16 = 0x4949;
 const TIFF_BE: u16 = 0x4D4D;
 
 pub struct Reader<R> {
     inner: R,
-    order: Endian,
-    entries_map: HashMap<Tag, IFDEntry>,
+    ifds: Vec<IFD>,
+    is_le: bool,
 }
 
 impl<R: Read + Seek> Reader<R> {
+    /// Creates a new TIFF reader from the input `Read` type.
     pub fn new(mut reader: R) -> Result<Reader<R>> {
         // Check order raw validation
-        let mut order_bytes = [0, 0];
-        reader.read_exact(&mut order_bytes)?;
 
-        let order_raw = u16::to_be(u16::from_bytes(order_bytes));
-        let order = match order_raw {
-            TIFF_LE => Endian::Little,
-            TIFF_BE => Endian::Big,
+        let order_raw = reader.read_u16::<BigEndian>()?;
+        let is_little_endian = match order_raw {
+            TIFF_LE => true,
+            TIFF_BE => false,
             _ => {
                 return Err(Error::new(ErrorKind::InvalidInput, "Non recognized file"));
             }
         };
 
         // Valid magic number for tiff
-        let mut tiff_magic_raw = [0, 0];
-        reader.read_exact(&mut tiff_magic_raw)?;
-        let tiff_magic = match order {
-            Endian::Big => u16::from_be(u16::from_bytes(tiff_magic_raw)),
-            Endian::Little => u16::from_le(u16::from_bytes(tiff_magic_raw)),
+        let tiff_magic = match is_little_endian {
+            false => reader.read_u16::<BigEndian>()?,
+            true => reader.read_u16::<LittleEndian>()?,
         };
 
         if tiff_magic != 42u16 {
@@ -40,28 +36,37 @@ impl<R: Read + Seek> Reader<R> {
         }
 
         // Read
-        let mut offset_bytes: [u8; 4] = [0; 4];
-        reader.read_exact(&mut offset_bytes)?;
-
-        let offset = match order {
-            Endian::Big => u32::from_be(u32::from_bytes(offset_bytes)),
-            Endian::Little => u32::from_le(u32::from_bytes(offset_bytes)),
+        let offset = match is_little_endian {
+            false => reader.read_u32::<BigEndian>()?,
+            true => reader.read_u32::<LittleEndian>()?,
         };
 
-        let map = IFDIterator::new(&mut reader, order, offset as usize)
-            .flat_map(move |e| (e.entries()))
-            .map(move |e| (e.tag(), *e))
-            .collect();
+        let ifds: Vec<IFD>;
+        if is_little_endian {
+            let iter: IFDIterator<R, LittleEndian> = IFDIterator::new(&mut reader, offset as usize);
+            ifds = iter.collect();
+        } else {
+            let iter: IFDIterator<R, BigEndian> = IFDIterator::new(&mut reader, offset as usize);
+            ifds = iter.collect();
+        }
 
         Ok(Reader {
             inner: reader,
-            order: order,
-            entries_map: map,
+            ifds: ifds,
+            is_le: is_little_endian,
         })
     }
 
-    pub fn entries_map(&self) -> &HashMap<Tag, IFDEntry> {
-        return &self.entries_map;
+    pub fn is_little_endian(&self) -> bool {
+        self.is_le
+    }
+
+    pub fn is_big_endian(&self) -> bool {
+        !self.is_little_endian()
+    }
+
+    pub fn directory_entries(&self) -> &Vec<IFD> {
+        &self.ifds
     }
 }
 
@@ -77,13 +82,7 @@ mod tests {
         let mut cursor = Cursor::new(bytes);
         let read = Reader::new(&mut cursor).unwrap();
 
-        assert_eq!(read.order, Endian::Big);
-
-        let elements = read.ifds();
-
-        for el in elements {
-            println!("Element: {:?}", el);
-        }
-        assert!(elements.len() > 0);
+        assert_eq!(read.is_little_endian(), false);
     }
+
 }

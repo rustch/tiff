@@ -1,12 +1,12 @@
-use ifd::IFDValueType;
-use std::convert::{From, Into};
+use std::convert::From;
 use std::fmt::{Display, Error, Formatter};
+use std::hash::{Hash, Hasher};
 
 macro_rules! tags_definition {
     {$(
         $name:ident | $value:expr => $desc:expr,
     )*} => {
-        #[derive(Debug, Copy, Clone, Hash)]
+        #[derive(Debug, Copy, Clone, PartialEq, Eq)]
         pub enum Tag {
             $($name,)*
             Unknown(u16)
@@ -24,11 +24,28 @@ macro_rules! tags_definition {
       impl Display for Tag {
           fn fmt(&self, f: &mut Formatter) -> Result<(),Error> {
               match self {
-                $( Tag::$name => { write!(f, "Tag $name ($value): $desc") })*,
+                $( Tag::$name => {
+                    write!(f, stringify!($name ($value): $desc))
+                })*,
                 Tag::Unknown(value) => { write!(f, "Unkown value: {}", value) }
               }
           }
       }
+
+          impl Hash for Tag {
+          fn hash<H: Hasher>(&self, state: &mut H) {
+              match self {
+                  $( Tag::$name => {
+                      $value.hash(state);
+                  })*
+                  Tag::Unknown(val) => {
+                      0xFFFF.hash(state);
+                      val.hash(state);
+
+                  }
+              }
+          }
+    }
     }
 }
 

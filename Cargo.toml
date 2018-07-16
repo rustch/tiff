@@ -2,6 +2,3 @@
 name = "tiff"
 version = "0.1.0"
 authors = ["Yannick Heinrich <yannick.heinrich@gmail.com>"]
-
-[dependencies]
-byteorder = "1.2.3"

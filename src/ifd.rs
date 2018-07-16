@@ -1,15 +1,14 @@
-use byteorder::{ByteOrder, ReadBytesExt};
+use endian::{Endian, EndianReader};
 use std::collections::HashMap;
 use std::convert::From;
-use std::io::{Read, Result, Seek, SeekFrom};
+use std::io::{Error, ErrorKind, Read, Result, Seek, SeekFrom};
 use std::iter::Iterator;
-use std::marker::PhantomData;
 use tag::Tag;
 
 #[derive(Debug)]
 pub enum IFDValue {
     Byte(Vec<u8>),
-    Ascii(Vec<u8>),
+    Ascii(Vec<String>),
     Short(Vec<u16>),
     Long(Vec<u32>),
     Rational,
@@ -24,37 +23,79 @@ pub enum IFDValue {
 
 impl IFDValue {
     pub fn new_from_entry<R: Read + Seek>(reader: &mut R, entry: &IFDEntry) -> Result<IFDValue> {
-        let mut short_buff: [u8; 4] = [0xFF; 4];
-
         match entry.value_type {
             1 => {
                 let bytes = IFDValue::read_bytes(reader, entry)?;
                 Ok(IFDValue::Byte(bytes))
+            }
+            2 => {
+                let values = IFDValue::read_ascii(reader, entry)?;
+                Ok(IFDValue::Ascii(values))
+            }
+            3 => {
+                let values = IFDValue::read_short(reader, entry)?;
+                Ok(IFDValue::Short(values))
+            }
+            4 => {
+                let values = IFDValue::read_long(reader, entry)?;
+                Ok(IFDValue::Long(values))
             }
             _ => Ok(IFDValue::Undefined),
         }
     }
 
     fn read_bytes<R: Read + Seek>(reader: &mut R, entry: &IFDEntry) -> Result<Vec<u8>> {
-        let mut short_buff: [u8; 4] = [0xFF; 4];
-
         if entry.count <= 4 {
-            let buff = &mut short_buff[..entry.count as usize];
-            reader.read_exact(buff)?;
-            Ok(buff.to_vec())
+            let bytes = &entry.value_offset.to_bytes();
+            Ok(bytes.to_vec())
         } else {
             reader.seek(SeekFrom::Start(entry.value_offset as u64))?;
-
-            let vec: Vec<u8> = Vec::with_capacity(entry.count as usize);
-            for i in 0..entry.count {
-                reader.read_exact(&mut short_buff[..1])?;
-                vec.push(short_buff[0]);
-            }
+            let mut vec: Vec<u8> = Vec::with_capacity(entry.count as usize);
+            reader.read_exact(&mut vec)?;
             Ok(vec)
         }
     }
 
-    fn read_ascii<R: Read + Seek>(reader: &mut R, entry: &IFDEntry) -> Result<Vec<u8>> {}
+    fn read_ascii<R: Read + Seek>(reader: &mut R, entry: &IFDEntry) -> Result<Vec<String>> {
+        let bytes = IFDValue::read_bytes(reader, entry)?;
+
+        // Splits by null cahracter
+        bytes
+            .split(|e| *e == '0' as u8)
+            .map(|a| {
+                String::from_utf8(a.to_vec())
+                    .map_err(|_e| Error::new(ErrorKind::InvalidData, "Unexepcted String"))
+            })
+            .collect()
+    }
+
+    fn read_short<R: Read + Seek>(reader: &mut R, entry: &IFDEntry) -> Result<Vec<u16>> {
+        let mut conv_buff: [u8; 2] = [0; 2];
+        let bytes = IFDValue::read_bytes(reader, entry)?;
+
+        let elements = bytes
+            .chunks(2)
+            .map(|e| {
+                conv_buff.copy_from_slice(e);
+                u16::from_bytes(conv_buff)
+            })
+            .collect();
+        Ok(elements)
+    }
+
+    fn read_long<R: Read + Seek>(reader: &mut R, entry: &IFDEntry) -> Result<Vec<u32>> {
+        let mut conv_buff: [u8; 4] = [0; 4];
+        let bytes = IFDValue::read_bytes(reader, entry)?;
+
+        let elements = bytes
+            .chunks(4)
+            .map(|e| {
+                conv_buff.copy_from_slice(e);
+                u32::from_bytes(conv_buff)
+            })
+            .collect();
+        Ok(elements)
+    }
 }
 
 /// An `IFDEntry` represents an **image file directory**
@@ -79,30 +120,28 @@ impl IFD {
     }
 }
 
-pub struct IFDIterator<'a, R: 'a, T> {
-    reader: &'a mut R,
+pub struct IFDIterator<'a, R: Read + Seek + 'a> {
+    reader: EndianReader<&'a mut R>,
     first_entry: usize,
     position: usize,
-    endian: PhantomData<T>,
 }
 
-impl<'a, R: Read + Seek, T: ByteOrder> IFDIterator<'a, R, T>
+impl<'a, R: Read + Seek> IFDIterator<'a, R>
 where
     R: 'a,
 {
-    pub fn new(reader: &'a mut R, first_ifd_offset: usize) -> IFDIterator<R, T> {
+    pub fn new(reader: &'a mut R, first_ifd_offset: usize, endian: Endian) -> IFDIterator<R> {
         reader.seek(SeekFrom::Start(0)).ok();
 
         IFDIterator {
-            reader: reader,
+            reader: EndianReader::new(reader, endian),
             first_entry: first_ifd_offset,
             position: 0,
-            endian: PhantomData,
         }
     }
 }
 
-impl<'a, R: Read + Seek, T: ByteOrder> Iterator for IFDIterator<'a, R, T> {
+impl<'a, R: Read + Seek> Iterator for IFDIterator<'a, R> {
     type Item = IFD;
 
     fn next(&mut self) -> Option<IFD> {
@@ -116,18 +155,18 @@ impl<'a, R: Read + Seek, T: ByteOrder> Iterator for IFDIterator<'a, R, T> {
         self.position = self.reader.seek(next).ok()? as usize;
 
         // Read Count
-        let entry_count = self.reader.read_u16::<T>().ok()?;
+        let entry_count = self.reader.read_u16().ok()?;
         let mut map = HashMap::<Tag, IFDEntry>::new();
         for _i in 0..entry_count {
             // Tag
-            let tag = self.reader.read_u16::<T>().ok()?;
+            let tag = self.reader.read_u16().ok()?;
 
             // Type
-            let value_type_raw = self.reader.read_u16::<T>().ok()?;
+            let value_type_raw = self.reader.read_u16().ok()?;
 
             // Count
-            let count = self.reader.read_u32::<T>().ok()?;
-            let value_offset = self.reader.read_u32::<T>().ok()?;
+            let count = self.reader.read_u32().ok()?;
+            let value_offset = self.reader.read_u32().ok()?;
 
             let tag_value = Tag::from(tag);
             let entry = IFDEntry {
@@ -140,7 +179,7 @@ impl<'a, R: Read + Seek, T: ByteOrder> Iterator for IFDIterator<'a, R, T> {
             map.insert(tag_value, entry);
         }
 
-        let next = self.reader.read_u32::<T>().ok()?;
+        let next = self.reader.read_u32().ok()?;
 
         Some(IFD {
             entries: map,

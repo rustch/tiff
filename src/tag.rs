@@ -86,4 +86,5 @@ tags_definition! {
     ColorMap | 0x0140	=> "A color map for palette color images.",
     ExtraSamples | 0x0152	=> "Description of extra components.",
     Copyright | 0x8298 => "Copyright notice.",
+    Predictor | 0x13d => "This section defines a Predictor that greatly improves compression ratios for some images.",
 }

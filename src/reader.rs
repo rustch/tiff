@@ -1,6 +1,5 @@
-use byteorder::{BigEndian, LittleEndian, ReadBytesExt};
+use endian::Endian;
 use ifd::{IFDEntry, IFDIterator, IFDValue, IFD};
-use std::convert::From;
 use std::io::{Error, ErrorKind, Read, Result, Seek, SeekFrom};
 use tag::Tag;
 const TIFF_LE: u16 = 0x4949;
@@ -9,27 +8,31 @@ const TIFF_BE: u16 = 0x4D4D;
 pub struct Reader<R> {
     inner: R,
     ifds: Vec<IFD>,
-    is_le: bool,
+    endian: Endian,
 }
 
 impl<R: Read + Seek> Reader<R> {
     /// Creates a new TIFF reader from the input `Read` type.
     pub fn new(mut reader: R) -> Result<Reader<R>> {
         // Check order raw validation
+        let mut order_bytes = [0, 0];
+        reader.read_exact(&mut order_bytes)?;
 
-        let order_raw = reader.read_u16::<BigEndian>()?;
-        let is_little_endian = match order_raw {
-            TIFF_LE => true,
-            TIFF_BE => false,
+        let order_raw = u16::to_be(u16::from_bytes(order_bytes));
+        let order = match order_raw {
+            TIFF_LE => Endian::Little,
+            TIFF_BE => Endian::Big,
             _ => {
                 return Err(Error::new(ErrorKind::InvalidInput, "Non recognized file"));
             }
         };
 
         // Valid magic number for tiff
-        let tiff_magic = match is_little_endian {
-            false => reader.read_u16::<BigEndian>()?,
-            true => reader.read_u16::<LittleEndian>()?,
+        let mut tiff_magic_raw = [0, 0];
+        reader.read_exact(&mut tiff_magic_raw)?;
+        let tiff_magic = match order {
+            Endian::Big => u16::from_be(u16::from_bytes(tiff_magic_raw)),
+            Endian::Little => u16::from_le(u16::from_bytes(tiff_magic_raw)),
         };
 
         if tiff_magic != 42u16 {
@@ -37,33 +40,25 @@ impl<R: Read + Seek> Reader<R> {
         }
 
         // Read
-        let offset = match is_little_endian {
-            false => reader.read_u32::<BigEndian>()?,
-            true => reader.read_u32::<LittleEndian>()?,
+        let mut offset_bytes: [u8; 4] = [0; 4];
+        reader.read_exact(&mut offset_bytes)?;
+
+        let offset = match order {
+            Endian::Big => u32::from_be(u32::from_bytes(offset_bytes)),
+            Endian::Little => u32::from_le(u32::from_bytes(offset_bytes)),
         };
 
-        let ifds: Vec<IFD>;
-        if is_little_endian {
-            let iter: IFDIterator<R, LittleEndian> = IFDIterator::new(&mut reader, offset as usize);
-            ifds = iter.collect();
-        } else {
-            let iter: IFDIterator<R, BigEndian> = IFDIterator::new(&mut reader, offset as usize);
-            ifds = iter.collect();
-        }
+        let ifds: Vec<IFD> = IFDIterator::new(&mut reader, offset as usize, order).collect();
 
         Ok(Reader {
             inner: reader,
             ifds: ifds,
-            is_le: is_little_endian,
+            endian: order,
         })
     }
 
-    pub fn is_little_endian(&self) -> bool {
-        self.is_le
-    }
-
-    pub fn is_big_endian(&self) -> bool {
-        !self.is_little_endian()
+    pub fn endianness(&self) -> Endian {
+        self.endian
     }
 
     pub fn directory_entries(&self) -> &Vec<IFD> {
@@ -74,7 +69,8 @@ impl<R: Read + Seek> Reader<R> {
         // Check if we have an entry inside any of the directory
 
         let ifd_entry: &IFDEntry;
-        ifd_entry = self.ifds
+        ifd_entry = self
+            .ifds
             .iter()
             .flat_map(|entry| entry.get_entry_from_tag(tag))
             .next()?;
@@ -84,7 +80,8 @@ impl<R: Read + Seek> Reader<R> {
             .seek(SeekFrom::Start(ifd_entry.value_offset as u64))
             .ok();
 
-        match Tag::from(ifd_entry.value_type) {}
+        let value = IFDValue::new_from_entry(&mut self.inner, ifd_entry).ok()?;
+        Some(value)
     }
 }
 
@@ -92,15 +89,27 @@ impl<R: Read + Seek> Reader<R> {
 mod tests {
 
     use super::*;
+    use endian::Endian;
     use std::io::Cursor;
+    use tag::Tag;
 
     #[test]
-    fn test_iter_creation() {
+    fn test_basic_usage() {
         let bytes: &[u8] = include_bytes!("../samples/arbitro_be.tiff");
         let mut cursor = Cursor::new(bytes);
-        let read = Reader::new(&mut cursor).unwrap();
+        let mut read = Reader::new(&mut cursor).unwrap();
 
-        assert_eq!(read.is_little_endian(), false);
+        assert_eq!(read.endianness(), Endian::Big);
+
+        if let Some(value) = read.value_from_tag(Tag::ImageWidth) {
+            match value {
+                IFDValue::Short(_) => assert!(true),
+                IFDValue::Long(_) => assert!(true),
+                _ => assert!(false, "Invalid value"),
+            }
+        } else {
+            assert!(false, "We expect to be able to read image width");
+        }
     }
 
 }

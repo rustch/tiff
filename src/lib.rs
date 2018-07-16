@@ -1,5 +1,7 @@
-extern crate byteorder;
+#![feature(int_to_from_bytes)]
 
+mod endian;
 mod ifd;
-pub mod reader;
 mod tag;
+
+pub mod reader;

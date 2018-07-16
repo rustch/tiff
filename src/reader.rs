@@ -1,7 +1,8 @@
 use byteorder::{BigEndian, LittleEndian, ReadBytesExt};
-use ifd::{IFDIterator, IFD};
-use std::io::{Error, ErrorKind, Read, Result, Seek};
-
+use ifd::{IFDEntry, IFDIterator, IFDValue, IFD};
+use std::convert::From;
+use std::io::{Error, ErrorKind, Read, Result, Seek, SeekFrom};
+use tag::Tag;
 const TIFF_LE: u16 = 0x4949;
 const TIFF_BE: u16 = 0x4D4D;
 
@@ -67,6 +68,23 @@ impl<R: Read + Seek> Reader<R> {
 
     pub fn directory_entries(&self) -> &Vec<IFD> {
         &self.ifds
+    }
+
+    pub fn value_from_tag(&mut self, tag: Tag) -> Option<IFDValue> {
+        // Check if we have an entry inside any of the directory
+
+        let ifd_entry: &IFDEntry;
+        ifd_entry = self.ifds
+            .iter()
+            .flat_map(|entry| entry.get_entry_from_tag(tag))
+            .next()?;
+
+        //  If yes, we construct the value
+        self.inner
+            .seek(SeekFrom::Start(ifd_entry.value_offset as u64))
+            .ok();
+
+        match Tag::from(ifd_entry.value_type) {}
     }
 }
 

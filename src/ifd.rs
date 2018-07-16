@@ -1,59 +1,60 @@
 use byteorder::{ByteOrder, ReadBytesExt};
 use std::collections::HashMap;
 use std::convert::From;
-use std::io::{Read, Seek, SeekFrom};
+use std::io::{Read, Result, Seek, SeekFrom};
 use std::iter::Iterator;
 use std::marker::PhantomData;
 use tag::Tag;
 
-pub enum IFDValueBag {
+#[derive(Debug)]
+pub enum IFDValue {
     Byte(Vec<u8>),
     Ascii(Vec<u8>),
-    Short,
-    Long,
+    Short(Vec<u16>),
+    Long(Vec<u32>),
     Rational,
-    SByte,
+    SByte(Vec<i8>),
     Undefined,
-    SShort,
-    SLong,
+    SShort(Vec<i16>),
+    SLong(Vec<i32>),
     SRational,
-    Float,
-    Double,
-}
-#[derive(Debug, Copy, Clone)]
-pub enum IFDValueType {
-    Byte,
-    Ascii,
-    Short,
-    Long,
-    Rational,
-    SByte,
-    Undefined,
-    SShort,
-    SLong,
-    SRational,
-    Float,
-    Double,
+    Float(Vec<f32>),
+    Double(Vec<f64>),
 }
 
-impl IFDValueType {
-    fn from_int(value: u16) -> IFDValueType {
-        match value {
-            1 => IFDValueType::Byte,
-            2 => IFDValueType::Ascii,
-            3 => IFDValueType::Short,
-            4 => IFDValueType::Long,
-            5 => IFDValueType::Rational,
-            6 => IFDValueType::SByte,
-            7 => IFDValueType::Undefined,
-            8 => IFDValueType::SShort,
-            9 => IFDValueType::SLong,
-            10 => IFDValueType::SRational,
-            11 => IFDValueType::Float,
-            12 => IFDValueType::Double,
-            _ => IFDValueType::Undefined,
+impl IFDValue {
+    pub fn new_from_entry<R: Read + Seek>(reader: &mut R, entry: &IFDEntry) -> Result<IFDValue> {
+        let mut short_buff: [u8; 4] = [0xFF; 4];
+
+        match entry.value_type {
+            1 => {
+                let bytes = IFDValue::read_bytes(reader, entry)?;
+                Ok(IFDValue::Byte(bytes))
+            }
+            _ => Ok(IFDValue::Undefined),
         }
     }
+
+    fn read_bytes<R: Read + Seek>(reader: &mut R, entry: &IFDEntry) -> Result<Vec<u8>> {
+        let mut short_buff: [u8; 4] = [0xFF; 4];
+
+        if entry.count <= 4 {
+            let buff = &mut short_buff[..entry.count as usize];
+            reader.read_exact(buff)?;
+            Ok(buff.to_vec())
+        } else {
+            reader.seek(SeekFrom::Start(entry.value_offset as u64))?;
+
+            let vec: Vec<u8> = Vec::with_capacity(entry.count as usize);
+            for i in 0..entry.count {
+                reader.read_exact(&mut short_buff[..1])?;
+                vec.push(short_buff[0]);
+            }
+            Ok(vec)
+        }
+    }
+
+    fn read_ascii<R: Read + Seek>(reader: &mut R, entry: &IFDEntry) -> Result<Vec<u8>> {}
 }
 
 /// An `IFDEntry` represents an **image file directory**
@@ -61,7 +62,7 @@ impl IFDValueType {
 #[derive(Debug)]
 pub struct IFDEntry {
     pub tag: Tag,
-    pub value_type: IFDValueType,
+    pub value_type: u16,
     pub count: u32,
     pub value_offset: u32,
 }
@@ -123,7 +124,6 @@ impl<'a, R: Read + Seek, T: ByteOrder> Iterator for IFDIterator<'a, R, T> {
 
             // Type
             let value_type_raw = self.reader.read_u16::<T>().ok()?;
-            let value_type = IFDValueType::from_int(value_type_raw);
 
             // Count
             let count = self.reader.read_u32::<T>().ok()?;
@@ -132,7 +132,7 @@ impl<'a, R: Read + Seek, T: ByteOrder> Iterator for IFDIterator<'a, R, T> {
             let tag_value = Tag::from(tag);
             let entry = IFDEntry {
                 tag: tag_value,
-                value_type: value_type,
+                value_type: value_type_raw,
                 count: count,
                 value_offset: value_offset,
             };

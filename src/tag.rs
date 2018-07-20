@@ -1,9 +1,9 @@
+use endian::Endian;
 use ifd::IFDValue;
 use std::convert::From;
 use std::error;
 use std::fmt::{Display, Error, Formatter};
 use std::hash::{Hash, Hasher};
-
 macro_rules! tags_definition {
     {$(
         $name:ident | $value:expr => $desc:expr,
@@ -93,37 +93,57 @@ tags_definition! {
 
 pub trait TIFFValue: Sized {
     fn tag() -> Tag;
-    fn from_value(value: &IFDValue) -> Option<Self>;
+    fn new_from_value(value: &IFDValue, endian: Endian) -> Option<Self>;
 }
 
-fn short_or_long(value: &IFDValue) -> Option<u32> {
-    None
+fn short_or_long(value: &IFDValue, endian: Endian) -> Option<u32> {
+    match value {
+        IFDValue::Short(e) => Some(e[0] as u32),
+        IFDValue::Long(e) => Some(e[0]),
+        _ => None,
+    }
 }
 
-pub struct PhotometricInterpretation(u16);
+pub enum PhotometricInterpretation {
+    WhiteIsZero,
+    BlackIsZero,
+}
 
-pub struct ImageWidth(u32);
+impl TIFFValue for PhotometricInterpretation {
+    fn tag() -> Tag {
+        Tag::PhotometricInterpretation
+    }
+
+    fn new_from_value(value: &IFDValue, endian: Endian) -> Option<PhotometricInterpretation> {
+        match value {
+            IFDValue::Short(el) if el[0] == 0 => Some(PhotometricInterpretation::WhiteIsZero),
+            IFDValue::Short(el) if el[0] == 1 => Some(PhotometricInterpretation::BlackIsZero),
+            _ => None,
+        }
+    }
+}
+pub struct ImageWidth(pub u32);
 
 impl TIFFValue for ImageWidth {
     fn tag() -> Tag {
         Tag::ImageWidth
     }
 
-    fn from_value(value: &IFDValue) -> Option<ImageWidth> {
-        let value = short_or_long(value)?;
+    fn new_from_value(value: &IFDValue, endian: Endian) -> Option<ImageWidth> {
+        let value = short_or_long(value, endian)?;
         Some(ImageWidth(value))
     }
 }
 
-pub struct ImageLength(u32);
+pub struct ImageLength(pub u32);
 
 impl TIFFValue for ImageLength {
     fn tag() -> Tag {
         Tag::ImageLength
     }
 
-    fn from_value(value: &IFDValue) -> Option<ImageLength> {
-        let value = short_or_long(value)?;
-        Some(ImageLength(value))
+    fn new_from_value(value: &IFDValue, endian: Endian) -> Option<ImageLength> {
+        let int_value = short_or_long(value, endian)?;
+        Some(ImageLength(int_value))
     }
 }

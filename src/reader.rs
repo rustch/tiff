@@ -1,7 +1,7 @@
 use endian::Endian;
 use ifd::{IFDEntry, IFDIterator, IFDValue, IFD};
 use std::io::{Error, ErrorKind, Read, Result, Seek, SeekFrom};
-use tag::Tag;
+use tag::TIFFValue;
 const TIFF_LE: u16 = 0x4949;
 const TIFF_BE: u16 = 0x4D4D;
 
@@ -49,12 +49,18 @@ impl<R: Read + Seek> Reader<R> {
         };
 
         let ifds: Vec<IFD> = IFDIterator::new(&mut reader, offset as usize, order).collect();
-
-        Ok(Reader {
-            inner: reader,
-            ifds: ifds,
-            endian: order,
-        })
+        if ifds.len() < 1 {
+            Err(Error::new(
+                ErrorKind::InvalidInput,
+                "A TIFF file shoudl have at least one IFD",
+            ))
+        } else {
+            Ok(Reader {
+                inner: reader,
+                ifds: ifds,
+                endian: order,
+            })
+        }
     }
 
     pub fn endianness(&self) -> Endian {
@@ -65,9 +71,10 @@ impl<R: Read + Seek> Reader<R> {
         &self.ifds
     }
 
-    pub fn value_from_tag(&mut self, tag: Tag) -> Option<IFDValue> {
+    pub fn get_tiff_value<T: TIFFValue>(&mut self) -> Option<T> {
         // Check if we have an entry inside any of the directory
 
+        let tag = T::tag();
         let ifd_entry: &IFDEntry;
         ifd_entry = self
             .ifds
@@ -75,13 +82,12 @@ impl<R: Read + Seek> Reader<R> {
             .flat_map(|entry| entry.get_entry_from_tag(tag))
             .next()?;
 
-        //  If yes, we construct the value
-        self.inner
-            .seek(SeekFrom::Start(ifd_entry.value_offset as u64))
-            .ok();
+        let value = IFDValue::new_from_entry(&mut self.inner, ifd_entry, self.endian).ok()?;
+        T::new_from_value(&value, self.endian)
+    }
 
-        let value = IFDValue::new_from_entry(&mut self.inner, ifd_entry).ok()?;
-        Some(value)
+    pub fn ifds(&self) -> &Vec<IFD> {
+        &self.ifds
     }
 }
 
@@ -91,7 +97,7 @@ mod tests {
     use super::*;
     use endian::Endian;
     use std::io::Cursor;
-    use tag::Tag;
+    use tag::{ImageLength, ImageWidth, PhotometricInterpretation};
 
     #[test]
     fn test_basic_usage() {
@@ -99,14 +105,18 @@ mod tests {
         let mut cursor = Cursor::new(bytes);
         let mut read = Reader::new(&mut cursor).unwrap();
 
+        println!("IFD {:?}", read.ifds());
+
         assert_eq!(read.endianness(), Endian::Big);
 
-        if let Some(value) = read.value_from_tag(Tag::ImageWidth) {
-            match value {
-                IFDValue::Short(_) => assert!(true),
-                IFDValue::Long(_) => assert!(true),
-                _ => assert!(false, "Invalid value"),
-            }
+        if let Some(value) = read.get_tiff_value::<ImageWidth>() {
+            assert_eq!(value.0, 174);
+        } else {
+            assert!(false, "We expect to be able to read image width");
+        }
+
+        if let Some(value) = read.get_tiff_value::<PhotometricInterpretation>() {
+            assert_eq!(value.0, 174);
         } else {
             assert!(false, "We expect to be able to read image width");
         }

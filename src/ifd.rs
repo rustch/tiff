@@ -22,10 +22,14 @@ pub enum IFDValue {
 }
 
 impl IFDValue {
-    pub fn new_from_entry<R: Read + Seek>(reader: &mut R, entry: &IFDEntry) -> Result<IFDValue> {
+    pub fn new_from_entry<R: Read + Seek>(
+        reader: &mut R,
+        entry: &IFDEntry,
+        endian: Endian,
+    ) -> Result<IFDValue> {
         match entry.value_type {
             1 => {
-                let bytes = IFDValue::read_bytes(reader, entry)?;
+                let bytes = IFDValue::read_n_bytes(reader, entry, entry.count as usize)?;
                 Ok(IFDValue::Byte(bytes))
             }
             2 => {
@@ -33,31 +37,35 @@ impl IFDValue {
                 Ok(IFDValue::Ascii(values))
             }
             3 => {
-                let values = IFDValue::read_short(reader, entry)?;
+                let values = IFDValue::read_short(reader, entry, endian)?;
                 Ok(IFDValue::Short(values))
             }
             4 => {
-                let values = IFDValue::read_long(reader, entry)?;
+                let values = IFDValue::read_long(reader, entry, endian)?;
                 Ok(IFDValue::Long(values))
             }
             _ => Ok(IFDValue::Undefined),
         }
     }
 
-    fn read_bytes<R: Read + Seek>(reader: &mut R, entry: &IFDEntry) -> Result<Vec<u8>> {
-        if entry.count <= 4 {
+    fn read_n_bytes<R: Read + Seek>(
+        reader: &mut R,
+        entry: &IFDEntry,
+        size: usize,
+    ) -> Result<Vec<u8>> {
+        if size <= 4 {
             let bytes = &entry.value_offset.to_bytes();
             Ok(bytes.to_vec())
         } else {
             reader.seek(SeekFrom::Start(entry.value_offset as u64))?;
-            let mut vec: Vec<u8> = Vec::with_capacity(entry.count as usize);
+            let mut vec: Vec<u8> = Vec::with_capacity(size);
             reader.read_exact(&mut vec)?;
             Ok(vec)
         }
     }
 
     fn read_ascii<R: Read + Seek>(reader: &mut R, entry: &IFDEntry) -> Result<Vec<String>> {
-        let bytes = IFDValue::read_bytes(reader, entry)?;
+        let bytes = IFDValue::read_n_bytes(reader, entry, entry.count as usize)?;
 
         // Splits by null cahracter
         bytes
@@ -69,29 +77,50 @@ impl IFDValue {
             .collect()
     }
 
-    fn read_short<R: Read + Seek>(reader: &mut R, entry: &IFDEntry) -> Result<Vec<u16>> {
+    fn read_short<R: Read + Seek>(
+        reader: &mut R,
+        entry: &IFDEntry,
+        endian: Endian,
+    ) -> Result<Vec<u16>> {
         let mut conv_buff: [u8; 2] = [0; 2];
-        let bytes = IFDValue::read_bytes(reader, entry)?;
+        let size = entry.count * 2;
+        let mut bytes = IFDValue::read_n_bytes(reader, entry, size as usize)?;
+        if endian == Endian::Big {
+            bytes.reverse()
+        }
 
-        let elements = bytes
+        let elements: Vec<u16> = bytes
             .chunks(2)
             .map(|e| {
                 conv_buff.copy_from_slice(e);
-                u16::from_bytes(conv_buff)
+
+                let bytes = u16::from_bytes(conv_buff);
+                endian.adjust_u16(bytes)
             })
             .collect();
+
         Ok(elements)
     }
 
-    fn read_long<R: Read + Seek>(reader: &mut R, entry: &IFDEntry) -> Result<Vec<u32>> {
+    fn read_long<R: Read + Seek>(
+        reader: &mut R,
+        entry: &IFDEntry,
+        endian: Endian,
+    ) -> Result<Vec<u32>> {
         let mut conv_buff: [u8; 4] = [0; 4];
-        let bytes = IFDValue::read_bytes(reader, entry)?;
+        let size = entry.count * 4;
+        let mut bytes = IFDValue::read_n_bytes(reader, entry, size as usize)?;
 
-        let elements = bytes
+        if endian == Endian::Big {
+            bytes.reverse()
+        }
+
+        let elements: Vec<u32> = bytes
             .chunks(4)
             .map(|e| {
                 conv_buff.copy_from_slice(e);
-                u32::from_bytes(conv_buff)
+                let bytes = u32::from_bytes(conv_buff);
+                endian.adjust_u32(bytes)
             })
             .collect();
         Ok(elements)
@@ -121,7 +150,7 @@ impl IFD {
 }
 
 pub struct IFDIterator<'a, R: Read + Seek + 'a> {
-    reader: EndianReader<&'a mut R>,
+    reader: EndianReader<'a, R>,
     first_entry: usize,
     position: usize,
 }
@@ -156,6 +185,10 @@ impl<'a, R: Read + Seek> Iterator for IFDIterator<'a, R> {
 
         // Read Count
         let entry_count = self.reader.read_u16().ok()?;
+        if entry_count < 1 {
+            return None;
+        }
+
         let mut map = HashMap::<Tag, IFDEntry>::new();
         for _i in 0..entry_count {
             // Tag

@@ -1,11 +1,14 @@
+//! This module handles endianness reading.
 use std::io::{Read, Result, Seek, SeekFrom};
 
+/// A simple enum representing known endianness.
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum Endian {
     Big,
     Little,
 }
 
+/// A reader aware of endianness
 pub struct EndianReader<R> {
     inner: R,
     endian: Endian,
@@ -18,6 +21,8 @@ impl<R: Seek> Seek for EndianReader<R> {
 }
 
 impl<R: Read> EndianReader<R> {
+    /// Creates an `EndianReader` from a specific reader
+    /// and `Endian` value.
     pub fn new(reader: R, endian: Endian) -> EndianReader<R> {
         EndianReader {
             inner: reader,
@@ -25,6 +30,7 @@ impl<R: Read> EndianReader<R> {
         }
     }
 
+    /// Read one `u16` from the reader.
     pub fn read_u16(&mut self) -> Result<u16> {
         let mut buf: [u8; 2] = [0; 2];
         self.inner.read_exact(&mut buf)?;
@@ -37,6 +43,7 @@ impl<R: Read> EndianReader<R> {
         Ok(ret)
     }
 
+    /// Read one `u32` from the reader.
     pub fn read_u32(&mut self) -> Result<u32> {
         let mut buf: [u8; 4] = [0; 4];
         self.inner.read_exact(&mut buf)?;
@@ -48,6 +55,7 @@ impl<R: Read> EndianReader<R> {
         Ok(ret)
     }
 
+    /// Read one `u64` from the reader.
     pub fn read_u64(&mut self) -> Result<u64> {
         let mut buf: [u8; 8] = [0; 8];
         self.inner.read_exact(&mut buf)?;
@@ -58,5 +66,25 @@ impl<R: Read> EndianReader<R> {
             Endian::Little => u64::from_le(value),
         };
         Ok(ret)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+    #[test]
+    fn test_reader() {
+        let bytes: Vec<u8> = vec![
+            0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE,
+        ];
+        let mut cursor = Cursor::new(&bytes);
+
+        let mut be_reader = EndianReader::new(cursor, Endian::Big);
+        assert_eq!(0x1122, be_reader.read_u16().unwrap());
+        assert_eq!(0x33445566, be_reader.read_u32().unwrap());
+        assert_eq!(0x778899AABBCCDDEE, be_reader.read_u64().unwrap());
+
+        cursor.set_position(0);
     }
 }

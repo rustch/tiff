@@ -1,4 +1,6 @@
+use ifd::IFDValue;
 use std::convert::From;
+use std::error;
 use std::fmt::{Display, Error, Formatter};
 use std::hash::{Hash, Hasher};
 
@@ -87,4 +89,41 @@ tags_definition! {
     ExtraSamples | 0x0152	=> "Description of extra components.",
     Copyright | 0x8298 => "Copyright notice.",
     Predictor | 0x13d => "This section defines a Predictor that greatly improves compression ratios for some images.",
+}
+
+pub trait TIFFValue: Sized {
+    fn tag() -> Tag;
+    fn from_value(value: &IFDValue) -> Option<Self>;
+}
+
+fn short_or_long(value: &IFDValue) -> Option<u32> {
+    None
+}
+
+pub struct PhotometricInterpretation(u16);
+
+pub struct ImageWidth(u32);
+
+impl TIFFValue for ImageWidth {
+    fn tag() -> Tag {
+        Tag::ImageWidth
+    }
+
+    fn from_value(value: &IFDValue) -> Option<ImageWidth> {
+        let value = short_or_long(value)?;
+        Some(ImageWidth(value))
+    }
+}
+
+pub struct ImageLength(u32);
+
+impl TIFFValue for ImageLength {
+    fn tag() -> Tag {
+        Tag::ImageLength
+    }
+
+    fn from_value(value: &IFDValue) -> Option<ImageLength> {
+        let value = short_or_long(value)?;
+        Some(ImageLength(value))
+    }
 }

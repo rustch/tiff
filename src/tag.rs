@@ -1,46 +1,46 @@
-use endian::Endian;
 use ifd::IFDValue;
+
 use std::convert::From;
-use std::error;
 use std::fmt::{Display, Error, Formatter};
 use std::hash::{Hash, Hasher};
-macro_rules! tags_definition {
+
+macro_rules! tags_id_definition {
     {$(
         $name:ident | $value:expr => $desc:expr,
     )*} => {
         #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-        pub enum Tag {
+        pub enum ID {
             $($name,)*
             Unknown(u16)
         }
 
-        impl From<u16> for Tag {
-            fn from(value: u16) -> Tag {
+        impl From<u16> for ID {
+            fn from(value: u16) -> ID {
                 match value {
-                    $( $value => Tag::$name,)*
-                    _ => Tag::Unknown(value)
+                    $( $value => ID::$name,)*
+                    _ => ID::Unknown(value)
                 }
         }
       }
 
-      impl Display for Tag {
+      impl Display for ID {
           fn fmt(&self, f: &mut Formatter) -> Result<(),Error> {
               match self {
-                $( Tag::$name => {
+                $( ID::$name => {
                     write!(f, stringify!($name ($value): $desc))
                 })*,
-                Tag::Unknown(value) => { write!(f, "Unkown value: {}", value) }
+                ID::Unknown(value) => { write!(f, "Unkown value: {}", value) }
               }
           }
       }
 
-          impl Hash for Tag {
+          impl Hash for ID {
           fn hash<H: Hasher>(&self, state: &mut H) {
               match self {
-                  $( Tag::$name => {
+                  $( ID::$name => {
                       $value.hash(state);
                   })*
-                  Tag::Unknown(val) => {
+                  ID::Unknown(val) => {
                       0xFFFF.hash(state);
                       val.hash(state);
 
@@ -51,7 +51,7 @@ macro_rules! tags_definition {
     }
 }
 
-tags_definition! {
+tags_id_definition! {
     NewSubfileType | 0x00fe	=> "A general indication of the kind of data contained in this subfile.",
     SubfileType | 0x00ff	=> "A general indication of the kind of data contained in this subfile.",
     ImageWidth | 0x0100	=> "The number of columns in the image, i.e., the number of pixels per row.",
@@ -91,59 +91,160 @@ tags_definition! {
     Predictor | 0x13d => "This section defines a Predictor that greatly improves compression ratios for some images.",
 }
 
-pub trait TIFFValue: Sized {
-    fn tag() -> Tag;
-    fn new_from_value(value: &IFDValue, endian: Endian) -> Option<Self>;
+pub trait TIFFTag: Sized {
+    /// The `Tag` corresponding to this value
+    fn tag() -> ID;
+    /// A function creating `Self` from one `IFDValue`
+    fn new_from_value(value: &IFDValue) -> Option<Self>;
 }
 
-fn short_or_long(value: &IFDValue, endian: Endian) -> Option<u32> {
-    match value {
-        IFDValue::Short(e) => Some(e[0] as u32),
-        IFDValue::Long(e) => Some(e[0]),
-        _ => None,
-    }
+macro_rules! short_long_value {
+    ($type:ident, $tag:expr) => {
+        #[derive(Debug)]
+        pub struct $type(pub u32);
+
+        impl TIFFTag for $type {
+            fn tag() -> ID {
+                $tag
+            }
+
+            fn new_from_value(value: &IFDValue) -> Option<$type> {
+                match value {
+                    IFDValue::Short(el) => Some($type(el[0] as u32)),
+                    IFDValue::Long(el) => Some($type(el[0])),
+                    _ => None,
+                }
+            }
+        }
+    };
 }
 
+macro_rules! short_value {
+    ($type:ident, $tag:expr) => {
+        #[derive(Debug)]
+        pub struct $type(pub u16);
+
+        impl TIFFTag for $type {
+            fn tag() -> ID {
+                $tag
+            }
+
+            fn new_from_value(value: &IFDValue) -> Option<$type> {
+                match value {
+                    IFDValue::Short(el) => Some($type(el[0] as u16)),
+                    _ => None,
+                }
+            }
+        }
+    };
+}
+
+/// The value of the `PhotometricInterpretation` value from the
+/// TIFF specification.
+#[derive(Debug, PartialEq, Eq)]
 pub enum PhotometricInterpretation {
     WhiteIsZero,
     BlackIsZero,
+    RGB,
+    PaletteColor,
+    TransparencyMask,
 }
 
-impl TIFFValue for PhotometricInterpretation {
-    fn tag() -> Tag {
-        Tag::PhotometricInterpretation
+impl TIFFTag for PhotometricInterpretation {
+    fn tag() -> ID {
+        ID::PhotometricInterpretation
     }
 
-    fn new_from_value(value: &IFDValue, endian: Endian) -> Option<PhotometricInterpretation> {
+    fn new_from_value(value: &IFDValue) -> Option<PhotometricInterpretation> {
         match value {
             IFDValue::Short(el) if el[0] == 0 => Some(PhotometricInterpretation::WhiteIsZero),
             IFDValue::Short(el) if el[0] == 1 => Some(PhotometricInterpretation::BlackIsZero),
+            IFDValue::Short(el) if el[0] == 2 => Some(PhotometricInterpretation::RGB),
+            IFDValue::Short(el) if el[0] == 3 => Some(PhotometricInterpretation::PaletteColor),
+            IFDValue::Short(el) if el[0] == 4 => Some(PhotometricInterpretation::TransparencyMask),
             _ => None,
         }
     }
 }
-pub struct ImageWidth(pub u32);
 
-impl TIFFValue for ImageWidth {
-    fn tag() -> Tag {
-        Tag::ImageWidth
-    }
+short_long_value!(ImageWidth, ID::ImageWidth);
 
-    fn new_from_value(value: &IFDValue, endian: Endian) -> Option<ImageWidth> {
-        let value = short_or_long(value, endian)?;
-        Some(ImageWidth(value))
+short_long_value!(ImageLength, ID::ImageLength);
+
+#[derive(Debug)]
+pub enum ResolutionUnit {
+    None,
+    Inch,
+    Centimeter,
+}
+
+impl Default for ResolutionUnit {
+    fn default() -> ResolutionUnit {
+        ResolutionUnit::Centimeter
     }
 }
 
-pub struct ImageLength(pub u32);
-
-impl TIFFValue for ImageLength {
-    fn tag() -> Tag {
-        Tag::ImageLength
+impl TIFFTag for ResolutionUnit {
+    fn tag() -> ID {
+        ID::ResolutionUnit
     }
 
-    fn new_from_value(value: &IFDValue, endian: Endian) -> Option<ImageLength> {
-        let int_value = short_or_long(value, endian)?;
-        Some(ImageLength(int_value))
+    fn new_from_value(value: &IFDValue) -> Option<ResolutionUnit> {
+        match value {
+            IFDValue::Short(el) if el[0] == 1 => Some(ResolutionUnit::None),
+            IFDValue::Short(el) if el[0] == 2 => Some(ResolutionUnit::Inch),
+            IFDValue::Short(el) if el[0] == 3 => Some(ResolutionUnit::Centimeter),
+            _ => None,
+        }
+    }
+}
+
+short_long_value!(StripOffsets, ID::StripOffsets);
+
+short_value!(SamplesPerPixel, ID::SamplesPerPixel);
+
+impl Default for SamplesPerPixel {
+    fn default() -> SamplesPerPixel {
+        SamplesPerPixel(1)
+    }
+}
+
+short_long_value!(RowsPerStrip, ID::RowsPerStrip);
+
+short_long_value!(StripByteCounts, ID::StripByteCounts);
+
+#[derive(Debug)]
+pub enum PlanarConfiguration {
+    Chunky,
+    Planar,
+}
+
+impl TIFFTag for PlanarConfiguration {
+    fn tag() -> ID {
+        ID::PlanarConfiguration
+    }
+
+    fn new_from_value(value: &IFDValue) -> Option<PlanarConfiguration> {
+        match value {
+            IFDValue::Short(el) if el[0] == 1 => Some(PlanarConfiguration::Chunky),
+            IFDValue::Short(el) if el[0] == 2 => Some(PlanarConfiguration::Planar),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct BitsPerSample(pub Vec<u16>);
+
+impl TIFFTag for BitsPerSample {
+    fn tag() -> ID {
+        ID::BitsPerSample
+    }
+
+    fn new_from_value(value: &IFDValue) -> Option<BitsPerSample> {
+        match value {
+            IFDValue::Short(el) => Some(BitsPerSample(el.clone())),
+            _ => None,
+        }
     }
 }

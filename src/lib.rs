@@ -2,6 +2,6 @@
 
 mod endian;
 mod ifd;
-mod tag;
 
 pub mod reader;
+pub mod tag;

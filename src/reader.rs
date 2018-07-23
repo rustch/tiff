@@ -1,7 +1,7 @@
 use endian::Endian;
 use ifd::{IFDEntry, IFDIterator, IFDValue, IFD};
-use std::io::{Error, ErrorKind, Read, Result, Seek, SeekFrom};
-use tag::TIFFValue;
+use std::io::{Error, ErrorKind, Read, Result, Seek};
+use tag::TIFFTag;
 const TIFF_LE: u16 = 0x4949;
 const TIFF_BE: u16 = 0x4D4D;
 
@@ -71,7 +71,7 @@ impl<R: Read + Seek> Reader<R> {
         &self.ifds
     }
 
-    pub fn get_tiff_value<T: TIFFValue>(&mut self) -> Option<T> {
+    pub fn get_tiff_value<T: TIFFTag>(&mut self) -> Option<T> {
         // Check if we have an entry inside any of the directory
 
         let tag = T::tag();
@@ -83,7 +83,7 @@ impl<R: Read + Seek> Reader<R> {
             .next()?;
 
         let value = IFDValue::new_from_entry(&mut self.inner, ifd_entry, self.endian).ok()?;
-        T::new_from_value(&value, self.endian)
+        T::new_from_value(&value)
     }
 
     pub fn ifds(&self) -> &Vec<IFD> {
@@ -97,16 +97,14 @@ mod tests {
     use super::*;
     use endian::Endian;
     use std::io::Cursor;
-    use tag::{ImageLength, ImageWidth, PhotometricInterpretation};
+    use tag::*;
 
     #[test]
-    fn test_basic_usage() {
+    fn test_sample_be() {
         let bytes: &[u8] = include_bytes!("../samples/arbitro_be.tiff");
         let mut cursor = Cursor::new(bytes);
         let mut read = Reader::new(&mut cursor).unwrap();
-
-        println!("IFD {:?}", read.ifds());
-
+        // println!("IFD {:?}", read.ifds());
         assert_eq!(read.endianness(), Endian::Big);
 
         if let Some(value) = read.get_tiff_value::<ImageWidth>() {
@@ -116,10 +114,90 @@ mod tests {
         }
 
         if let Some(value) = read.get_tiff_value::<PhotometricInterpretation>() {
-            assert_eq!(value.0, 174);
+            assert_eq!(value, PhotometricInterpretation::RGB);
         } else {
-            assert!(false, "We expect to be able to read image width");
+            assert!(false, "We expect to be able to PhotometricInterpretation");
+        }
+
+        if let Some(value) = read.get_tiff_value::<StripOffsets>() {
+            assert_eq!(value.0, 8);
+        } else {
+            assert!(false, "We expect to be able to StripOffsets");
+        }
+
+        if let Some(value) = read.get_tiff_value::<SamplesPerPixel>() {
+            assert_eq!(value.0, 4);
+        } else {
+            assert!(false, "We expect to be able to SamplesPerPixel");
+        }
+
+        if let Some(value) = read.get_tiff_value::<RowsPerStrip>() {
+            assert_eq!(value.0, 38);
+        } else {
+            assert!(false, "We expect to be able to RowsPerStrip");
+        }
+
+        if let Some(value) = read.get_tiff_value::<StripByteCounts>() {
+            assert_eq!(value.0, 6391);
+        } else {
+            assert!(false, "We expect to be able to StripByteCounts");
+        }
+
+        if let Some(value) = read.get_tiff_value::<BitsPerSample>() {
+            assert_eq!(value.0, vec![8, 8, 8, 8]);
+        } else {
+            assert!(false, "We expect to be able to BitsPerSample");
         }
     }
 
+    #[test]
+    fn test_sample_le() {
+        let bytes: &[u8] = include_bytes!("../samples/picoawards_le.tiff");
+        let mut cursor = Cursor::new(bytes);
+        let mut read = Reader::new(&mut cursor).unwrap();
+        // println!("IFD {:?}", read.ifds());
+        assert_eq!(read.endianness(), Endian::Little);
+
+        if let Some(value) = read.get_tiff_value::<ImageWidth>() {
+            assert_eq!(value.0, 436);
+        } else {
+            assert!(false, "We expect to be able to read image width");
+        }
+
+        if let Some(value) = read.get_tiff_value::<PhotometricInterpretation>() {
+            assert_eq!(value, PhotometricInterpretation::RGB);
+        } else {
+            assert!(false, "We expect to be able to PhotometricInterpretation");
+        }
+
+        // if let Some(value) = read.get_tiff_value::<StripOffsets>() {
+        //     assert_eq!(value.0, 8);
+        // } else {
+        //     assert!(false, "We expect to be able to StripOffsets");
+        // }
+
+        if let Some(value) = read.get_tiff_value::<SamplesPerPixel>() {
+            assert_eq!(value.0, 3);
+        } else {
+            assert!(false, "We expect to be able to SamplesPerPixel");
+        }
+
+        if let Some(value) = read.get_tiff_value::<RowsPerStrip>() {
+            assert_eq!(value.0, 9);
+        } else {
+            assert!(false, "We expect to be able to RowsPerStrip");
+        }
+
+        // if let Some(value) = read.get_tiff_value::<StripByteCounts>() {
+        //     assert_eq!(value.0, 6391);
+        // } else {
+        //     assert!(false, "We expect to be able to StripByteCounts");
+        // }
+
+        if let Some(value) = read.get_tiff_value::<BitsPerSample>() {
+            assert_eq!(value.0, vec![8, 8, 8]);
+        } else {
+            assert!(false, "We expect to be able to BitsPerSample");
+        }
+    }
 }

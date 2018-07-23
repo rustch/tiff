@@ -3,7 +3,8 @@ use std::collections::HashMap;
 use std::convert::From;
 use std::io::{Error, ErrorKind, Read, Result, Seek, SeekFrom};
 use std::iter::Iterator;
-use tag::Tag;
+
+use tag::ID;
 
 #[derive(Debug)]
 pub enum IFDValue {
@@ -58,7 +59,7 @@ impl IFDValue {
             Ok(bytes.to_vec())
         } else {
             reader.seek(SeekFrom::Start(entry.value_offset as u64))?;
-            let mut vec: Vec<u8> = Vec::with_capacity(size);
+            let mut vec: Vec<u8> = vec![0; size];
             reader.read_exact(&mut vec)?;
             Ok(vec)
         }
@@ -85,7 +86,8 @@ impl IFDValue {
         let mut conv_buff: [u8; 2] = [0; 2];
         let size = entry.count * 2;
         let mut bytes = IFDValue::read_n_bytes(reader, entry, size as usize)?;
-        if endian == Endian::Big {
+
+        if endian == Endian::Big && size <= 4 {
             bytes.reverse()
         }
 
@@ -111,7 +113,7 @@ impl IFDValue {
         let size = entry.count * 4;
         let mut bytes = IFDValue::read_n_bytes(reader, entry, size as usize)?;
 
-        if endian == Endian::Big {
+        if endian == Endian::Big && size <= 4 {
             bytes.reverse()
         }
 
@@ -131,7 +133,7 @@ impl IFDValue {
 /// mentionned inside the tiff specification. This is the base
 #[derive(Debug)]
 pub struct IFDEntry {
-    pub tag: Tag,
+    pub tag: ID,
     pub value_type: u16,
     pub count: u32,
     pub value_offset: u32,
@@ -139,12 +141,12 @@ pub struct IFDEntry {
 
 #[derive(Debug)]
 pub struct IFD {
-    entries: HashMap<Tag, IFDEntry>,
+    entries: HashMap<ID, IFDEntry>,
     next: usize,
 }
 
 impl IFD {
-    pub fn get_entry_from_tag(&self, tag: Tag) -> Option<&IFDEntry> {
+    pub fn get_entry_from_tag(&self, tag: ID) -> Option<&IFDEntry> {
         self.entries.get(&tag)
     }
 }
@@ -189,7 +191,7 @@ impl<'a, R: Read + Seek> Iterator for IFDIterator<'a, R> {
             return None;
         }
 
-        let mut map = HashMap::<Tag, IFDEntry>::new();
+        let mut map = HashMap::<ID, IFDEntry>::new();
         for _i in 0..entry_count {
             // Tag
             let tag = self.reader.read_u16().ok()?;
@@ -201,7 +203,7 @@ impl<'a, R: Read + Seek> Iterator for IFDIterator<'a, R> {
             let count = self.reader.read_u32().ok()?;
             let value_offset = self.reader.read_u32().ok()?;
 
-            let tag_value = Tag::from(tag);
+            let tag_value = ID::from(tag);
             let entry = IFDEntry {
                 tag: tag_value,
                 value_type: value_type_raw,

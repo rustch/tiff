@@ -73,19 +73,6 @@ impl<'a, R: Read> EndianReader<'a, R> {
         };
         Ok(ret)
     }
-
-    /// Read one `u64` from the reader.
-    pub fn read_u64(&mut self) -> Result<u64> {
-        let mut buf: [u8; 8] = [0; 8];
-        self.inner.read_exact(&mut buf)?;
-
-        let value = u64::from_bytes(buf);
-        let ret = match self.endian {
-            Endian::Big => u64::from_be(value),
-            Endian::Little => u64::from_le(value),
-        };
-        Ok(ret)
-    }
 }
 
 #[cfg(test)]
@@ -94,15 +81,12 @@ mod tests {
     use std::io::Cursor;
     #[test]
     fn test_reader() {
-        let bytes: Vec<u8> = vec![
-            0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE,
-        ];
+        let bytes: Vec<u8> = vec![0x11, 0x22, 0x33, 0x44, 0x55, 0x66];
         let mut cursor = Cursor::new(&bytes);
         {
             let mut be_reader = EndianReader::new(&mut cursor, Endian::Big);
             assert_eq!(0x1122, be_reader.read_u16().unwrap());
             assert_eq!(0x33445566, be_reader.read_u32().unwrap());
-            assert_eq!(0x778899AABBCCDDEE, be_reader.read_u64().unwrap());
         }
 
         cursor.set_position(0);
@@ -110,7 +94,6 @@ mod tests {
             let mut le_reader = EndianReader::new(&mut cursor, Endian::Little);
             assert_eq!(0x2211, le_reader.read_u16().unwrap());
             assert_eq!(0x66554433, le_reader.read_u32().unwrap());
-            assert_eq!(0xEEDDCCBBAA998877, le_reader.read_u64().unwrap());
         }
     }
 }

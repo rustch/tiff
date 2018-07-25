@@ -1,4 +1,4 @@
-use ifd::IFDValue;
+use ifd::{IFDValue, Rational, SRational};
 
 use std::convert::From;
 use std::fmt::{Display, Error, Formatter};
@@ -52,8 +52,8 @@ macro_rules! tags_id_definition {
 }
 
 tags_id_definition! {
-    NewSubfileType | 0x00fe	=> "A general indication of the kind of data contained in this subfile.",
-    SubfileType | 0x00ff	=> "A general indication of the kind of data contained in this subfile.",
+    NewSubfileType | 0xfe	=> "A general indication of the kind of data contained in this subfile.",
+    SubfileType | 0xff	=> "A general indication of the kind of data contained in this subfile.",
     ImageWidth | 0x0100	=> "The number of columns in the image, i.e., the number of pixels per row.",
     ImageLength | 0x0101	=> "The number of rows of pixels in the image.",
     BitsPerSample | 0x0102	=> "Number of bits per component.",
@@ -139,6 +139,25 @@ macro_rules! short_value {
     };
 }
 
+macro_rules! long_value {
+    ($type:ident, $tag:expr) => {
+        #[derive(Debug)]
+        pub struct $type(pub u16);
+
+        impl TIFFTag for $type {
+            fn tag() -> ID {
+                $tag
+            }
+
+            fn new_from_value(value: &IFDValue) -> Option<$type> {
+                match value {
+                    IFDValue::Long(el) => Some($type(el[0] as u16)),
+                    _ => None,
+                }
+            }
+        }
+    };
+}
 /// The value of the `PhotometricInterpretation` value from the
 /// TIFF specification.
 #[derive(Debug, PartialEq, Eq)]
@@ -171,7 +190,7 @@ short_long_value!(ImageWidth, ID::ImageWidth);
 
 short_long_value!(ImageLength, ID::ImageLength);
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum ResolutionUnit {
     None,
     Inch,
@@ -198,8 +217,21 @@ impl TIFFTag for ResolutionUnit {
         }
     }
 }
+#[derive(Debug, Eq, PartialEq)]
+pub struct StripOffsets(pub Vec<u32>);
 
-short_long_value!(StripOffsets, ID::StripOffsets);
+impl TIFFTag for StripOffsets {
+    fn tag() -> ID {
+        ID::StripOffsets
+    }
+    fn new_from_value(value: &IFDValue) -> Option<StripOffsets> {
+        match value {
+            IFDValue::Short(el) => Some(StripOffsets(el.iter().map(|e| *e as u32).collect())),
+            IFDValue::Long(el) => Some(StripOffsets(el.clone())),
+            _ => None,
+        }
+    }
+}
 
 short_value!(SamplesPerPixel, ID::SamplesPerPixel);
 
@@ -209,11 +241,24 @@ impl Default for SamplesPerPixel {
     }
 }
 
+#[derive(Debug, Eq, PartialEq)]
+pub struct StripByteCounts(pub Vec<u32>);
+
+impl TIFFTag for StripByteCounts {
+    fn tag() -> ID {
+        ID::StripByteCounts
+    }
+    fn new_from_value(value: &IFDValue) -> Option<StripByteCounts> {
+        match value {
+            IFDValue::Short(el) => Some(StripByteCounts(el.iter().map(|e| *e as u32).collect())),
+            IFDValue::Long(el) => Some(StripByteCounts(el.clone())),
+            _ => None,
+        }
+    }
+}
 short_long_value!(RowsPerStrip, ID::RowsPerStrip);
 
-short_long_value!(StripByteCounts, ID::StripByteCounts);
-
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum PlanarConfiguration {
     Chunky,
     Planar,
@@ -233,7 +278,7 @@ impl TIFFTag for PlanarConfiguration {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct BitsPerSample(pub Vec<u16>);
 
 impl TIFFTag for BitsPerSample {
@@ -246,5 +291,91 @@ impl TIFFTag for BitsPerSample {
             IFDValue::Short(el) => Some(BitsPerSample(el.clone())),
             _ => None,
         }
+    }
+}
+
+pub struct XResolution(pub Rational);
+
+impl TIFFTag for XResolution {
+    fn tag() -> ID {
+        ID::XResolution
+    }
+    fn new_from_value(value: &IFDValue) -> Option<XResolution> {
+        match value {
+            IFDValue::Rational(val) => Some(XResolution(val[0])),
+            _ => None,
+        }
+    }
+}
+
+pub struct YResolution(pub Rational);
+impl TIFFTag for YResolution {
+    fn tag() -> ID {
+        ID::YResolution
+    }
+
+    fn new_from_value(value: &IFDValue) -> Option<YResolution> {
+        match value {
+            IFDValue::Rational(val) => Some(YResolution(val[0])),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub enum Predictor {
+    None,
+    HorizontalDifferencing,
+}
+
+impl TIFFTag for Predictor {
+    fn tag() -> ID {
+        ID::Predictor
+    }
+
+    fn new_from_value(value: &IFDValue) -> Option<Predictor> {
+        match value {
+            IFDValue::Short(el) if el[0] == 1 => Some(Predictor::None),
+            IFDValue::Short(el) if el[0] == 2 => Some(Predictor::HorizontalDifferencing),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub enum SubfileType {
+    FullResolutionImage,
+    ReducedResolutionImage,
+    SinglePageImage,
+}
+
+impl TIFFTag for SubfileType {
+    fn tag() -> ID {
+        ID::SubfileType
+    }
+
+    fn new_from_value(value: &IFDValue) -> Option<SubfileType> {
+        match value {
+            IFDValue::Short(el) if el[0] == 1 => Some(SubfileType::FullResolutionImage),
+            IFDValue::Short(el) if el[0] == 2 => Some(SubfileType::ReducedResolutionImage),
+            IFDValue::Short(el) if el[3] == 3 => Some(SubfileType::SinglePageImage),
+            _ => None,
+        }
+    }
+}
+
+long_value!(NewSubfileType, ID::NewSubfileType);
+
+impl NewSubfileType {
+    pub fn is_reduced_image(&self) -> bool {
+        0x1 & self.0 > 0
+    }
+
+    pub fn is_single_page_image(&self) -> bool {
+        0x2 & self.0 > 0
+    }
+
+    pub fn is_transparency_mask_defined(&self) -> bool {
+        0x4 & self.0 > 0
     }
 }

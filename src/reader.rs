@@ -96,9 +96,17 @@ mod tests {
 
     use super::*;
     use endian::Endian;
+    use ifd::Rational;
     use std::io::Cursor;
     use tag::*;
 
+    macro_rules! ensure_field {
+        ($read:expr, $type:ty) => {
+            $read
+                .get_tiff_value::<$type>()
+                .expect(stringify!("We expect to be able to read" $type))
+        };
+    }
     #[test]
     fn test_sample_be() {
         let bytes: &[u8] = include_bytes!("../samples/arbitro_be.tiff");
@@ -107,47 +115,28 @@ mod tests {
         // println!("IFD {:?}", read.ifds());
         assert_eq!(read.endianness(), Endian::Big);
 
-        if let Some(value) = read.get_tiff_value::<ImageWidth>() {
-            assert_eq!(value.0, 174);
-        } else {
-            assert!(false, "We expect to be able to read image width");
-        }
+        let image_width = ensure_field!(read, ImageWidth);
+        assert_eq!(image_width.0, 174);
 
-        if let Some(value) = read.get_tiff_value::<PhotometricInterpretation>() {
-            assert_eq!(value, PhotometricInterpretation::RGB);
-        } else {
-            assert!(false, "We expect to be able to PhotometricInterpretation");
-        }
+        let photometric_interpretation = ensure_field!(read, PhotometricInterpretation);
+        assert_eq!(photometric_interpretation, PhotometricInterpretation::RGB);
 
-        if let Some(value) = read.get_tiff_value::<StripOffsets>() {
-            assert_eq!(value.0, 8);
-        } else {
-            assert!(false, "We expect to be able to StripOffsets");
-        }
+        let strip_offsets = ensure_field!(read, StripOffsets);
+        assert_eq!(strip_offsets.0.len(), 1);
+        assert_eq!(strip_offsets.0[0], 8);
 
-        if let Some(value) = read.get_tiff_value::<SamplesPerPixel>() {
-            assert_eq!(value.0, 4);
-        } else {
-            assert!(false, "We expect to be able to SamplesPerPixel");
-        }
+        let samples_per_pixel = ensure_field!(read, SamplesPerPixel);
+        assert_eq!(samples_per_pixel.0, 4);
 
-        if let Some(value) = read.get_tiff_value::<RowsPerStrip>() {
-            assert_eq!(value.0, 38);
-        } else {
-            assert!(false, "We expect to be able to RowsPerStrip");
-        }
+        let rows_per_strip = ensure_field!(read, RowsPerStrip);
+        assert_eq!(rows_per_strip.0, 38);
 
-        if let Some(value) = read.get_tiff_value::<StripByteCounts>() {
-            assert_eq!(value.0, 6391);
-        } else {
-            assert!(false, "We expect to be able to StripByteCounts");
-        }
+        let strip_byte_counts = ensure_field!(read, StripByteCounts);
+        assert_eq!(strip_byte_counts.0.len(), 1);
+        assert_eq!(strip_byte_counts.0[0], 6391);
 
-        if let Some(value) = read.get_tiff_value::<BitsPerSample>() {
-            assert_eq!(value.0, vec![8, 8, 8, 8]);
-        } else {
-            assert!(false, "We expect to be able to BitsPerSample");
-        }
+        let bits_per_sample = ensure_field!(read, BitsPerSample);
+        assert_eq!(bits_per_sample.0, vec![8, 8, 8, 8]);
     }
 
     #[test]
@@ -158,46 +147,45 @@ mod tests {
         // println!("IFD {:?}", read.ifds());
         assert_eq!(read.endianness(), Endian::Little);
 
-        if let Some(value) = read.get_tiff_value::<ImageWidth>() {
-            assert_eq!(value.0, 436);
-        } else {
-            assert!(false, "We expect to be able to read image width");
-        }
+        let image_width = ensure_field!(read, ImageWidth);
+        assert_eq!(image_width.0, 436);
 
-        if let Some(value) = read.get_tiff_value::<PhotometricInterpretation>() {
-            assert_eq!(value, PhotometricInterpretation::RGB);
-        } else {
-            assert!(false, "We expect to be able to PhotometricInterpretation");
-        }
+        let photometric_interpretation = ensure_field!(read, PhotometricInterpretation);
+        assert_eq!(photometric_interpretation, PhotometricInterpretation::RGB);
 
-        // if let Some(value) = read.get_tiff_value::<StripOffsets>() {
-        //     assert_eq!(value.0, 8);
-        // } else {
-        //     assert!(false, "We expect to be able to StripOffsets");
-        // }
+        // let strip_offsets = ensure_field!(read, StripOffsets);
+        //  et!(value.0, 8);
+        //
 
-        if let Some(value) = read.get_tiff_value::<SamplesPerPixel>() {
-            assert_eq!(value.0, 3);
-        } else {
-            assert!(false, "We expect to be able to SamplesPerPixel");
-        }
+        let samples_per_pixel = ensure_field!(read, SamplesPerPixel);
+        assert_eq!(samples_per_pixel.0, 3);
 
-        if let Some(value) = read.get_tiff_value::<RowsPerStrip>() {
-            assert_eq!(value.0, 9);
-        } else {
-            assert!(false, "We expect to be able to RowsPerStrip");
-        }
+        let rows_per_strip = ensure_field!(read, RowsPerStrip);
+        assert_eq!(rows_per_strip.0, 9);
 
-        // if let Some(value) = read.get_tiff_value::<StripByteCounts>() {
-        //     assert_eq!(value.0, 6391);
-        // } else {
-        //     assert!(false, "We expect to be able to StripByteCounts");
-        // }
+        // let strip_byte_counts = ensure_field!(read, StripByteCounts);
+        //  et!(value.0, 6391);
+        //
 
-        if let Some(value) = read.get_tiff_value::<BitsPerSample>() {
-            assert_eq!(value.0, vec![8, 8, 8]);
-        } else {
-            assert!(false, "We expect to be able to BitsPerSample");
-        }
+        let bits_per_sample = ensure_field!(read, BitsPerSample);
+        assert_eq!(bits_per_sample.0, vec![8, 8, 8]);
+
+        let x_resolution = ensure_field!(read, XResolution);
+        assert_eq!(x_resolution.0, Rational { num: 96, denom: 1 });
+
+        let y_resolution = ensure_field!(read, YResolution);
+        assert_eq!(y_resolution.0, Rational { num: 96, denom: 1 });
+
+        let resolution_unit = ensure_field!(read, ResolutionUnit);
+        assert_eq!(resolution_unit, ResolutionUnit::Inch);
+
+        let predictor = ensure_field!(read, Predictor);
+        assert_eq!(predictor, Predictor::None);
+
+        let planar = ensure_field!(read, PlanarConfiguration);
+        assert_eq!(planar, PlanarConfiguration::Chunky);
+
+        let subfile = ensure_field!(read, NewSubfileType);
+        assert_eq!(false, subfile.is_reduced_image());
     }
 }

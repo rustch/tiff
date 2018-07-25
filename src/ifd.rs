@@ -6,18 +6,30 @@ use std::iter::Iterator;
 
 use tag::ID;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Rational {
+    pub num: u32,
+    pub denom: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SRational {
+    num: i32,
+    denom: i32,
+}
+
 #[derive(Debug)]
 pub enum IFDValue {
     Byte(Vec<u8>),
     Ascii(Vec<String>),
     Short(Vec<u16>),
     Long(Vec<u32>),
-    Rational,
+    Rational(Vec<Rational>),
     SByte(Vec<i8>),
     Undefined,
     SShort(Vec<i16>),
     SLong(Vec<i32>),
-    SRational,
+    SRational(Vec<SRational>),
     Float(Vec<f32>),
     Double(Vec<f64>),
 }
@@ -44,6 +56,10 @@ impl IFDValue {
             4 => {
                 let values = IFDValue::read_long(reader, entry, endian)?;
                 Ok(IFDValue::Long(values))
+            }
+            5 => {
+                let values = IFDValue::read_rational(reader, entry, endian)?;
+                Ok(IFDValue::Rational(values))
             }
             _ => Ok(IFDValue::Undefined),
         }
@@ -126,6 +142,33 @@ impl IFDValue {
             })
             .collect();
         Ok(elements)
+    }
+
+    fn read_rational<R: Read + Seek>(
+        reader: &mut R,
+        entry: &IFDEntry,
+        endian: Endian,
+    ) -> Result<Vec<Rational>> {
+        let size = entry.count * 8;
+        let mut conv_buff: [u8; 4] = [0; 4];
+        let bytes = IFDValue::read_n_bytes(reader, entry, size as usize)?;
+
+        let elements: Vec<u32> = bytes
+            .chunks(4)
+            .map(|e| {
+                conv_buff.copy_from_slice(e);
+                let bytes = u32::from_bytes(conv_buff);
+                endian.adjust_u32(bytes)
+            })
+            .collect();
+
+        Ok(elements
+            .chunks(2)
+            .map(|e| Rational {
+                num: e[0],
+                denom: e[1],
+            })
+            .collect())
     }
 }
 

@@ -5,15 +5,15 @@ use tag::TIFFTag;
 const TIFF_LE: u16 = 0x4949;
 const TIFF_BE: u16 = 0x4D4D;
 
-pub struct Reader<R> {
+pub struct TIFF<R> {
     inner: R,
     ifds: Vec<IFD>,
     endian: Endian,
 }
 
-impl<R: Read + Seek> Reader<R> {
+impl<R: Read + Seek> TIFF<R> {
     /// Creates a new TIFF reader from the input `Read` type.
-    pub fn new(mut reader: R) -> Result<Reader<R>> {
+    pub fn new(mut reader: R) -> Result<TIFF<R>> {
         // Check order raw validation
         let mut order_bytes = [0, 0];
         reader.read_exact(&mut order_bytes)?;
@@ -55,7 +55,7 @@ impl<R: Read + Seek> Reader<R> {
                 "A TIFF file shoudl have at least one IFD",
             ))
         } else {
-            Ok(Reader {
+            Ok(TIFF {
                 inner: reader,
                 ifds: ifds,
                 endian: order,
@@ -63,14 +63,17 @@ impl<R: Read + Seek> Reader<R> {
         }
     }
 
+    /// Returns the endianness of the processed input.
     pub fn endianness(&self) -> Endian {
         self.endian
     }
 
+    /// Returns a reference to the IFD directories contained inside the reader.
     pub fn directory_entries(&self) -> &Vec<IFD> {
         &self.ifds
     }
 
+    /// Look for a specific tag in all IFDS.
     pub fn get_tiff_value<T: TIFFTag>(&mut self) -> Option<T> {
         // Check if we have an entry inside any of the directory
 
@@ -86,6 +89,7 @@ impl<R: Read + Seek> Reader<R> {
         T::new_from_value(&value)
     }
 
+    /// Access to the IFDS contained inside the image
     pub fn ifds(&self) -> &Vec<IFD> {
         &self.ifds
     }
@@ -111,7 +115,7 @@ mod tests {
     fn test_sample_be() {
         let bytes: &[u8] = include_bytes!("../samples/arbitro_be.tiff");
         let mut cursor = Cursor::new(bytes);
-        let mut read = Reader::new(&mut cursor).unwrap();
+        let mut read = TIFF::new(&mut cursor).unwrap();
         // println!("IFD {:?}", read.ifds());
         assert_eq!(read.endianness(), Endian::Big);
 
@@ -143,7 +147,7 @@ mod tests {
     fn test_sample_le() {
         let bytes: &[u8] = include_bytes!("../samples/picoawards_le.tiff");
         let mut cursor = Cursor::new(bytes);
-        let mut read = Reader::new(&mut cursor).unwrap();
+        let mut read = TIFF::new(&mut cursor).unwrap();
         // println!("IFD {:?}", read.ifds());
         assert_eq!(read.endianness(), Endian::Little);
 

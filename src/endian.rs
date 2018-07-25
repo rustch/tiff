@@ -8,6 +8,11 @@ pub enum Endian {
     Little,
 }
 
+/// A constant representing a Big endianness;
+pub const BE: Endian = Endian::Big;
+/// A constant representing a Little endianness;
+pub const LE: Endian = Endian::Little;
+
 impl Endian {
     pub fn adjust_u16(&self, x: u16) -> u16 {
         match self {

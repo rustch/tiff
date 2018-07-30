@@ -4,6 +4,8 @@ use std::convert::From;
 use std::fmt::{Display, Error, Formatter};
 use std::hash::{Hash, Hasher};
 
+use chrono;
+
 macro_rules! tags_id_definition {
     {$(
         $name:ident | $value:expr => $desc:expr,
@@ -99,7 +101,8 @@ pub trait TIFFTag: Sized {
 }
 
 macro_rules! short_long_value {
-    ($type:ident, $tag:expr) => {
+    ($(#[$attr:meta])* $type:ident, $tag:expr) => {
+      $(#[$attr])*
         #[derive(Debug)]
         pub struct $type(pub u32);
 
@@ -120,7 +123,8 @@ macro_rules! short_long_value {
 }
 
 macro_rules! short_value {
-    ($type:ident, $tag:expr) => {
+    ($(#[$attr:meta])* $type:ident, $tag:expr) => {
+         $(#[$attr])*
         #[derive(Debug)]
         pub struct $type(pub u16);
 
@@ -140,7 +144,8 @@ macro_rules! short_value {
 }
 
 macro_rules! long_value {
-    ($type:ident, $tag:expr) => {
+    ($(#[$attr:meta])* $type:ident, $tag:expr) => {
+         $(#[$attr])*
         #[derive(Debug)]
         pub struct $type(pub u16);
 
@@ -158,8 +163,8 @@ macro_rules! long_value {
         }
     };
 }
-/// The value of the `PhotometricInterpretation` value from the
-/// TIFF specification.
+
+/// This Field indicates the color space of the image.
 #[derive(Debug, PartialEq, Eq)]
 pub enum PhotometricInterpretation {
     WhiteIsZero,
@@ -167,6 +172,8 @@ pub enum PhotometricInterpretation {
     RGB,
     PaletteColor,
     TransparencyMask,
+    CMYK,
+    YCbCr,
 }
 
 impl TIFFTag for PhotometricInterpretation {
@@ -181,15 +188,26 @@ impl TIFFTag for PhotometricInterpretation {
             IFDValue::Short(el) if el[0] == 2 => Some(PhotometricInterpretation::RGB),
             IFDValue::Short(el) if el[0] == 3 => Some(PhotometricInterpretation::PaletteColor),
             IFDValue::Short(el) if el[0] == 4 => Some(PhotometricInterpretation::TransparencyMask),
+            IFDValue::Short(el) if el[0] == 5 => Some(PhotometricInterpretation::CMYK),
+            IFDValue::Short(el) if el[0] == 6 => Some(PhotometricInterpretation::YCbCr),
             _ => None,
         }
     }
 }
 
-short_long_value!(ImageWidth, ID::ImageWidth);
+short_long_value! {
+    #[doc = "The number of columns in the image, i.e., the number of pixels per row."]
+    ImageWidth,
+    ID::ImageWidth
+}
 
-short_long_value!(ImageLength, ID::ImageLength);
+short_long_value!{
+    #[doc = "The number of rows of pixels in the image."]
+    ImageLength,
+    ID::ImageLength
+}
 
+/// The unit of measurement for XResolution and YResolution
 #[derive(Debug, Eq, PartialEq)]
 pub enum ResolutionUnit {
     None,
@@ -217,6 +235,8 @@ impl TIFFTag for ResolutionUnit {
         }
     }
 }
+
+/// For each strip, the byte offset of that strip.
 #[derive(Debug, Eq, PartialEq)]
 pub struct StripOffsets(pub Vec<u32>);
 
@@ -224,6 +244,7 @@ impl TIFFTag for StripOffsets {
     fn tag() -> ID {
         ID::StripOffsets
     }
+
     fn new_from_value(value: &IFDValue) -> Option<StripOffsets> {
         match value {
             IFDValue::Short(el) => Some(StripOffsets(el.iter().map(|e| *e as u32).collect())),
@@ -233,14 +254,7 @@ impl TIFFTag for StripOffsets {
     }
 }
 
-short_value!(SamplesPerPixel, ID::SamplesPerPixel);
-
-impl Default for SamplesPerPixel {
-    fn default() -> SamplesPerPixel {
-        SamplesPerPixel(1)
-    }
-}
-
+/// For each strip, the number of bytes in the strip after compression.
 #[derive(Debug, Eq, PartialEq)]
 pub struct StripByteCounts(pub Vec<u32>);
 
@@ -256,8 +270,26 @@ impl TIFFTag for StripByteCounts {
         }
     }
 }
-short_long_value!(RowsPerStrip, ID::RowsPerStrip);
 
+short_value!{
+    #[doc = "The number of components per pixel. This number is 3 for RGB images, unless extra samples are present. See the ExtraSamples field for further information."]
+    SamplesPerPixel,
+    ID::SamplesPerPixel
+}
+
+impl Default for SamplesPerPixel {
+    fn default() -> SamplesPerPixel {
+        SamplesPerPixel(1)
+    }
+}
+
+short_long_value! {
+    #[doc = "The number of rows per strip."]
+    RowsPerStrip,
+    ID::RowsPerStrip
+}
+
+/// How the components of each pixel are stored.
 #[derive(Debug, Eq, PartialEq)]
 pub enum PlanarConfiguration {
     Chunky,
@@ -278,6 +310,7 @@ impl TIFFTag for PlanarConfiguration {
     }
 }
 
+/// Number of bits per component.
 #[derive(Debug, Eq, PartialEq)]
 pub struct BitsPerSample(pub Vec<u16>);
 
@@ -294,6 +327,7 @@ impl TIFFTag for BitsPerSample {
     }
 }
 
+/// The number of pixels per ResolutionUnit in the ImageWidth direction.
 pub struct XResolution(pub Rational);
 
 impl TIFFTag for XResolution {
@@ -308,6 +342,7 @@ impl TIFFTag for XResolution {
     }
 }
 
+/// The number of pixels per ResolutionUnit in the ImageLength direction.
 pub struct YResolution(pub Rational);
 impl TIFFTag for YResolution {
     fn tag() -> ID {
@@ -322,6 +357,7 @@ impl TIFFTag for YResolution {
     }
 }
 
+/// A predictor is a mathematical operator that is applied to the image data before an encoding scheme is applied.
 #[derive(Debug, Eq, PartialEq)]
 pub enum Predictor {
     None,
@@ -342,6 +378,7 @@ impl TIFFTag for Predictor {
     }
 }
 
+/// DEPRECATED: See `NewSubfileType`
 #[derive(Debug, Eq, PartialEq)]
 pub enum SubfileType {
     FullResolutionImage,
@@ -364,7 +401,11 @@ impl TIFFTag for SubfileType {
     }
 }
 
-long_value!(NewSubfileType, ID::NewSubfileType);
+long_value! {
+    #[doc = "Replaces the old SubfileType field, due to limitations in the definition of that field."]
+    NewSubfileType,
+    ID::NewSubfileType
+}
 
 impl NewSubfileType {
     pub fn is_reduced_image(&self) -> bool {
@@ -377,5 +418,61 @@ impl NewSubfileType {
 
     pub fn is_transparency_mask_defined(&self) -> bool {
         0x4 & self.0 > 0
+    }
+}
+
+/// Data can be stored either compressed or uncompressed.
+pub enum Compression {
+    NoCompression,
+    ModifiedHuffmanCompression,
+    PackBits,
+}
+
+impl TIFFTag for Compression {
+    fn tag() -> ID {
+        ID::Compression
+    }
+
+    fn new_from_value(value: &IFDValue) -> Option<Compression> {
+        match value {
+            IFDValue::Short(val) if val[0] == 1 => Some(Compression::NoCompression),
+            IFDValue::Short(val) if val[0] == 2 => Some(Compression::ModifiedHuffmanCompression),
+            IFDValue::Short(val) if val[0] == 32773 => Some(Compression::PackBits),
+            _ => None,
+        }
+    }
+}
+
+/// Name and version number of the software package(s) used to create the image.
+pub struct Software(pub String);
+
+impl TIFFTag for Software {
+    fn tag() -> ID {
+        ID::Software
+    }
+
+    fn new_from_value(value: &IFDValue) -> Option<Software> {
+        match value {
+            IFDValue::Ascii(val) => Some(Software(val[0].clone())),
+            _ => None,
+        }
+    }
+}
+
+pub struct DateTime(pub chrono::DateTime<chrono::FixedOffset>);
+
+impl TIFFTag for DateTime {
+    fn tag() -> ID {
+        ID::DateTime
+    }
+
+    fn new_from_value(value: &IFDValue) -> Option<DateTime> {
+        match value {
+            IFDValue::Ascii(val) => {
+                let time = chrono::DateTime::parse_from_str(&val[0], "%Y:%m:%d %H:%M:%S").ok()?;
+                Some(DateTime(time))
+            }
+            _ => None,
+        }
     }
 }

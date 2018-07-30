@@ -192,4 +192,42 @@ mod tests {
         let subfile = ensure_field!(read, NewSubfileType);
         assert_eq!(false, subfile.is_reduced_image());
     }
+
+    #[test]
+    fn test_sample_other() {
+        let bytes: &[u8] = include_bytes!("../samples/ycbcr-cat.tif");
+        let mut cursor = Cursor::new(bytes);
+        let mut read = TIFF::new(&mut cursor).unwrap();
+        // println!("IFD {:?}", read.ifds());
+        assert_eq!(read.endianness(), Endian::Big);
+
+        let image_width = ensure_field!(read, ImageWidth);
+        assert_eq!(image_width.0, 250);
+
+        let image_length = ensure_field!(read, ImageLength);
+        assert_eq!(image_length.0, 325);
+
+        let photometric_interpretation = ensure_field!(read, PhotometricInterpretation);
+        assert_eq!(photometric_interpretation, PhotometricInterpretation::YCbCr);
+
+        // let strip_offsets = ensure_field!(read, StripOffsets);
+        //  et!(value.0, 8);
+        //
+
+        let samples_per_pixel = ensure_field!(read, SamplesPerPixel);
+        assert_eq!(samples_per_pixel.0, 3);
+
+        let rows_per_strip = ensure_field!(read, RowsPerStrip);
+        assert_eq!(rows_per_strip.0, 10);
+
+        // let strip_byte_counts = ensure_field!(read, StripByteCounts);
+        //  et!(value.0, 6391);
+        //
+
+        let bits_per_sample = ensure_field!(read, BitsPerSample);
+        assert_eq!(bits_per_sample.0, vec![8, 8, 8]);
+
+        let planar = ensure_field!(read, PlanarConfiguration);
+        assert_eq!(planar, PlanarConfiguration::Chunky);
+    }
 }

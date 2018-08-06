@@ -13,25 +13,85 @@ pub const BE: Endian = Endian::Big;
 /// A constant representing a Little endianness;
 pub const LE: Endian = Endian::Little;
 
+pub trait EndianType: Sized + Clone + Copy {
+    fn from_be(x: Self) -> Self;
+    fn from_le(x: Self) -> Self;
+}
+
+pub trait Short: EndianType {
+    fn from_bytes(bytes: [u8; 2]) -> Self;
+}
+
+pub trait Long: EndianType {
+    fn from_bytes(bytes: [u8; 4]) -> Self;
+}
+
+pub trait LongLong: EndianType {
+    fn from_bytes(bytes: [u8; 8]) -> Self;
+}
+
+macro_rules! EndianTypeImpl {
+    ($t:ident) => {
+        impl EndianType for $t {
+            fn from_be(x: $t) -> $t {
+                $t::from_be(x)
+            }
+
+            fn from_le(x: $t) -> $t {
+                $t::from_le(x)
+            }
+        }
+    };
+}
+macro_rules! ShortImpl {
+    ($t:ident) => {
+        EndianTypeImpl!($t);
+
+        impl Short for $t {
+            fn from_bytes(bytes: [u8; 2]) -> Self {
+                $t::from_bytes(bytes)
+            }
+        }
+    };
+}
+
+macro_rules! LongImpl {
+    ($t:ident) => {
+        EndianTypeImpl!($t);
+
+        impl Long for $t {
+            fn from_bytes(bytes: [u8; 4]) -> Self {
+                $t::from_bytes(bytes)
+            }
+        }
+    };
+}
+
+macro_rules! LongLongImpl {
+    ($t:ident) => {
+        EndianTypeImpl!($t);
+
+        impl LongLong for $t {
+            fn from_bytes(bytes: [u8; 8]) -> Self {
+                $t::from_bytes(bytes)
+            }
+        }
+    };
+}
+
+ShortImpl!(u16);
+LongImpl!(u32);
+LongLongImpl!(u64);
+
+ShortImpl!(i16);
+LongImpl!(i32);
+LongLongImpl!(i64);
+
 impl Endian {
-    pub fn adjust_u16(&self, x: u16) -> u16 {
+    pub fn adjust<T: EndianType>(&self, x: T) -> T {
         match self {
-            Endian::Big => u16::from_be(x),
-            Endian::Little => u16::from_le(x),
-        }
-    }
-
-    pub fn adjust_u32(&self, x: u32) -> u32 {
-        match self {
-            Endian::Big => u32::from_be(x),
-            Endian::Little => u32::from_le(x),
-        }
-    }
-
-    pub fn adjust_u64(&self, x: u64) -> u64 {
-        match self {
-            Endian::Big => u64::from_be(x),
-            Endian::Little => u64::from_le(x),
+            Endian::Big => T::from_be(x),
+            Endian::Little => T::from_le(x),
         }
     }
 }
@@ -64,7 +124,7 @@ impl<'a, R: Read> EndianReader<'a, R> {
         self.inner.read_exact(&mut buf)?;
 
         let value = u16::from_bytes(buf);
-        Ok(self.endian.adjust_u16(value))
+        Ok(self.endian.adjust(value))
     }
 
     /// Read one `u32` from the reader.

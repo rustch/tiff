@@ -1,4 +1,4 @@
-use endian::{Endian, EndianReader};
+use endian::{Endian, EndianReader, Long, LongLong, Short};
 use std::collections::HashMap;
 use std::convert::From;
 use std::io::{Error, ErrorKind, Read, Result, Seek, SeekFrom};
@@ -7,15 +7,9 @@ use std::iter::Iterator;
 use tag::ID;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Rational {
-    pub num: u32,
-    pub denom: u32,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SRational {
-    num: i32,
-    denom: i32,
+pub struct Rational<T: Long> {
+    pub num: T,
+    pub denom: T,
 }
 
 #[derive(Debug)]
@@ -24,12 +18,12 @@ pub enum IFDValue {
     Ascii(Vec<String>),
     Short(Vec<u16>),
     Long(Vec<u32>),
-    Rational(Vec<Rational>),
+    Rational(Vec<Rational<u32>>),
     SByte(Vec<i8>),
-    Undefined,
+    Undefined(Vec<u8>),
     SShort(Vec<i16>),
     SLong(Vec<i32>),
-    SRational(Vec<SRational>),
+    SRational(Vec<Rational<i32>>),
     Float(Vec<f32>),
     Double(Vec<f64>),
 }
@@ -45,23 +39,60 @@ impl IFDValue {
                 let bytes = IFDValue::read_n_bytes(reader, entry, entry.count as usize)?;
                 Ok(IFDValue::Byte(bytes))
             }
+
             2 => {
                 let values = IFDValue::read_ascii(reader, entry)?;
                 Ok(IFDValue::Ascii(values))
             }
+
             3 => {
                 let values = IFDValue::read_short(reader, entry, endian)?;
                 Ok(IFDValue::Short(values))
             }
+
             4 => {
                 let values = IFDValue::read_long(reader, entry, endian)?;
                 Ok(IFDValue::Long(values))
             }
+
             5 => {
                 let values = IFDValue::read_rational(reader, entry, endian)?;
                 Ok(IFDValue::Rational(values))
             }
-            _ => Ok(IFDValue::Undefined),
+
+            6 => {
+                let mut bytes = IFDValue::read_n_bytes(reader, entry, entry.count as usize)?;
+                let result = bytes.iter().map(|i| *i as i8).collect();
+                Ok(IFDValue::SByte(result))
+            }
+
+            8 => {
+                let values = IFDValue::read_short(reader, entry, endian)?;
+                Ok(IFDValue::SShort(values))
+            }
+
+            9 => {
+                let values = IFDValue::read_long(reader, entry, endian)?;
+                Ok(IFDValue::SLong(values))
+            }
+            10 => {
+                let values = IFDValue::read_rational(reader, entry, endian)?;
+                Ok(IFDValue::SRational(values))
+            }
+            11 => {
+                let values: Vec<u32> = IFDValue::read_long(reader, entry, endian)?;
+                let result = values.iter().map(|i| f32::from_bits(*i)).collect();
+                Ok(IFDValue::Float(result))
+            }
+            12 => {
+                let values: Vec<u64> = IFDValue::read_long_long(reader, entry, endian)?;
+                let result = values.iter().map(|i| f64::from_bits(*i)).collect();
+                Ok(IFDValue::Double(result))
+            }
+            _ => {
+                let bytes = IFDValue::read_n_bytes(reader, entry, entry.count as usize)?;
+                Ok(IFDValue::Undefined(bytes))
+            }
         }
     }
 
@@ -90,15 +121,14 @@ impl IFDValue {
             .map(|a| {
                 String::from_utf8(a.to_vec())
                     .map_err(|_e| Error::new(ErrorKind::InvalidData, "Unexepcted String"))
-            })
-            .collect()
+            }).collect()
     }
 
-    fn read_short<R: Read + Seek>(
+    fn read_short<R: Read + Seek, T: Short>(
         reader: &mut R,
         entry: &IFDEntry,
         endian: Endian,
-    ) -> Result<Vec<u16>> {
+    ) -> Result<Vec<T>> {
         let mut conv_buff: [u8; 2] = [0; 2];
         let size = entry.count * 2;
         let mut bytes = IFDValue::read_n_bytes(reader, entry, size as usize)?;
@@ -107,24 +137,23 @@ impl IFDValue {
             bytes.reverse()
         }
 
-        let elements: Vec<u16> = bytes
+        let elements: Vec<T> = bytes
             .chunks(2)
             .map(|e| {
                 conv_buff.copy_from_slice(e);
 
-                let bytes = u16::from_bytes(conv_buff);
-                endian.adjust_u16(bytes)
-            })
-            .collect();
+                let bytes = T::from_bytes(conv_buff);
+                endian.adjust(bytes)
+            }).collect();
 
         Ok(elements)
     }
 
-    fn read_long<R: Read + Seek>(
+    fn read_long<R: Read + Seek, T: Long>(
         reader: &mut R,
         entry: &IFDEntry,
         endian: Endian,
-    ) -> Result<Vec<u32>> {
+    ) -> Result<Vec<T>> {
         let mut conv_buff: [u8; 4] = [0; 4];
         let size = entry.count * 4;
         let mut bytes = IFDValue::read_n_bytes(reader, entry, size as usize)?;
@@ -133,42 +162,62 @@ impl IFDValue {
             bytes.reverse()
         }
 
-        let elements: Vec<u32> = bytes
+        let elements: Vec<T> = bytes
             .chunks(4)
             .map(|e| {
                 conv_buff.copy_from_slice(e);
-                let bytes = u32::from_bytes(conv_buff);
-                endian.adjust_u32(bytes)
-            })
-            .collect();
+                let bytes = T::from_bytes(conv_buff);
+                endian.adjust(bytes)
+            }).collect();
         Ok(elements)
     }
 
-    fn read_rational<R: Read + Seek>(
+    fn read_long_long<R: Read + Seek, T: LongLong>(
         reader: &mut R,
         entry: &IFDEntry,
         endian: Endian,
-    ) -> Result<Vec<Rational>> {
+    ) -> Result<Vec<T>> {
+        let mut conv_buff: [u8; 8] = [0; 8];
+        let size = entry.count * 8;
+        let mut bytes = IFDValue::read_n_bytes(reader, entry, size as usize)?;
+
+        if endian == Endian::Big && size <= 8 {
+            bytes.reverse()
+        }
+
+        let elements: Vec<T> = bytes
+            .chunks(8)
+            .map(|e| {
+                conv_buff.copy_from_slice(e);
+                let bytes = T::from_bytes(conv_buff);
+                endian.adjust(bytes)
+            }).collect();
+        Ok(elements)
+    }
+
+    fn read_rational<R: Read + Seek, T: Long>(
+        reader: &mut R,
+        entry: &IFDEntry,
+        endian: Endian,
+    ) -> Result<Vec<Rational<T>>> {
         let size = entry.count * 8;
         let mut conv_buff: [u8; 4] = [0; 4];
         let bytes = IFDValue::read_n_bytes(reader, entry, size as usize)?;
 
-        let elements: Vec<u32> = bytes
+        let elements: Vec<T> = bytes
             .chunks(4)
             .map(|e| {
                 conv_buff.copy_from_slice(e);
-                let bytes = u32::from_bytes(conv_buff);
-                endian.adjust_u32(bytes)
-            })
-            .collect();
+                let bytes = T::from_bytes(conv_buff);
+                endian.adjust(bytes)
+            }).collect();
 
         Ok(elements
             .chunks(2)
             .map(|e| Rational {
                 num: e[0],
                 denom: e[1],
-            })
-            .collect())
+            }).collect())
     }
 }
 

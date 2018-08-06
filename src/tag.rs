@@ -1,4 +1,4 @@
-use ifd::{IFDValue, Rational, SRational};
+use ifd::{IFDValue, Rational};
 
 use std::convert::From;
 use std::fmt::{Display, Error, Formatter};
@@ -328,7 +328,7 @@ impl TIFFTag for BitsPerSample {
 }
 
 /// The number of pixels per ResolutionUnit in the ImageWidth direction.
-pub struct XResolution(pub Rational);
+pub struct XResolution(pub Rational<u32>);
 
 impl TIFFTag for XResolution {
     fn tag() -> ID {
@@ -343,7 +343,7 @@ impl TIFFTag for XResolution {
 }
 
 /// The number of pixels per ResolutionUnit in the ImageLength direction.
-pub struct YResolution(pub Rational);
+pub struct YResolution(pub Rational<u32>);
 impl TIFFTag for YResolution {
     fn tag() -> ID {
         ID::YResolution

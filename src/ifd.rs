@@ -142,8 +142,7 @@ impl IFDValue {
             .map(|e| {
                 conv_buff.copy_from_slice(e);
 
-                let bytes = T::from_bytes(conv_buff);
-                endian.adjust(bytes)
+                endian.short_from_bytes::<T>(conv_buff)
             }).collect();
 
         Ok(elements)
@@ -166,8 +165,7 @@ impl IFDValue {
             .chunks(4)
             .map(|e| {
                 conv_buff.copy_from_slice(e);
-                let bytes = T::from_bytes(conv_buff);
-                endian.adjust(bytes)
+                endian.long_from_bytes::<T>(conv_buff)
             }).collect();
         Ok(elements)
     }
@@ -189,8 +187,7 @@ impl IFDValue {
             .chunks(8)
             .map(|e| {
                 conv_buff.copy_from_slice(e);
-                let bytes = T::from_bytes(conv_buff);
-                endian.adjust(bytes)
+                endian.longlong_from_bytes::<T>(conv_buff)
             }).collect();
         Ok(elements)
     }
@@ -208,8 +205,7 @@ impl IFDValue {
             .chunks(4)
             .map(|e| {
                 conv_buff.copy_from_slice(e);
-                let bytes = T::from_bytes(conv_buff);
-                endian.adjust(bytes)
+                endian.long_from_bytes::<T>(conv_buff)
             }).collect();
 
         Ok(elements
@@ -278,7 +274,7 @@ impl<'a, R: Read + Seek> Iterator for IFDIterator<'a, R> {
         self.position = self.reader.seek(next).ok()? as usize;
 
         // Read Count
-        let entry_count = self.reader.read_u16().ok()?;
+        let entry_count: u16 = self.reader.read_short().ok()?;
         if entry_count < 1 {
             return None;
         }
@@ -286,14 +282,14 @@ impl<'a, R: Read + Seek> Iterator for IFDIterator<'a, R> {
         let mut map = HashMap::<Tag, IFDEntry>::new();
         for _i in 0..entry_count {
             // Tag
-            let tag = self.reader.read_u16().ok()?;
+            let tag: u16 = self.reader.read_short().ok()?;
 
             // Type
-            let value_type_raw = self.reader.read_u16().ok()?;
+            let value_type_raw: u16 = self.reader.read_short().ok()?;
 
             // Count
-            let count = self.reader.read_u32().ok()?;
-            let value_offset = self.reader.read_u32().ok()?;
+            let count: u32 = self.reader.read_long().ok()?;
+            let value_offset: u32 = self.reader.read_long().ok()?;
 
             let tag_value = Tag::from(tag);
             let entry = IFDEntry {
@@ -306,7 +302,7 @@ impl<'a, R: Read + Seek> Iterator for IFDIterator<'a, R> {
             map.insert(tag_value, entry);
         }
 
-        let next = self.reader.read_u32().ok()?;
+        let next: u32 = self.reader.read_long().ok()?;
 
         Some(IFD {
             entries: map,

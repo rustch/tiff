@@ -13,85 +13,93 @@ pub const BE: Endian = Endian::Big;
 /// A constant representing a Little endianness;
 pub const LE: Endian = Endian::Little;
 
-pub trait EndianType: Sized + Clone + Copy {
-    fn from_be(x: Self) -> Self;
-    fn from_le(x: Self) -> Self;
+pub trait Short: Copy + Sized {
+    fn from_bytes_le(bytes: [u8; 2]) -> Self;
+    fn from_bytes_be(bytes: [u8; 2]) -> Self;
 }
 
-pub trait Short: EndianType {
-    fn from_bytes(bytes: [u8; 2]) -> Self;
+impl Short for u16 {
+    fn from_bytes_le(bytes: [u8; 2]) -> u16 {
+        u16::from_le(u16::from_bytes(bytes))
+    }
+    fn from_bytes_be(bytes: [u8; 2]) -> u16 {
+        u16::from_be(u16::from_bytes(bytes))
+    }
 }
 
-pub trait Long: EndianType {
-    fn from_bytes(bytes: [u8; 4]) -> Self;
+impl Short for i16 {
+    fn from_bytes_le(bytes: [u8; 2]) -> i16 {
+        i16::from_le_bytes(bytes)
+    }
+    fn from_bytes_be(bytes: [u8; 2]) -> i16 {
+        i16::from_be_bytes(bytes)
+    }
+}
+pub trait Long: Copy + Sized {
+    fn from_bytes_le(bytes: [u8; 4]) -> Self;
+    fn from_bytes_be(bytes: [u8; 4]) -> Self;
 }
 
-pub trait LongLong: EndianType {
-    fn from_bytes(bytes: [u8; 8]) -> Self;
+impl Long for u32 {
+    fn from_bytes_le(bytes: [u8; 4]) -> u32 {
+        u32::from_le(u32::from_bytes(bytes))
+    }
+    fn from_bytes_be(bytes: [u8; 4]) -> u32 {
+        u32::from_be(u32::from_bytes(bytes))
+    }
 }
 
-macro_rules! EndianTypeImpl {
-    ($t:ident) => {
-        impl EndianType for $t {
-            fn from_be(x: $t) -> $t {
-                $t::from_be(x)
-            }
-
-            fn from_le(x: $t) -> $t {
-                $t::from_le(x)
-            }
-        }
-    };
-}
-macro_rules! ShortImpl {
-    ($t:ident) => {
-        EndianTypeImpl!($t);
-
-        impl Short for $t {
-            fn from_bytes(bytes: [u8; 2]) -> Self {
-                $t::from_bytes(bytes)
-            }
-        }
-    };
+impl Long for i32 {
+    fn from_bytes_le(bytes: [u8; 4]) -> i32 {
+        i32::from_le_bytes(bytes)
+    }
+    fn from_bytes_be(bytes: [u8; 4]) -> i32 {
+        i32::from_be_bytes(bytes)
+    }
 }
 
-macro_rules! LongImpl {
-    ($t:ident) => {
-        EndianTypeImpl!($t);
-
-        impl Long for $t {
-            fn from_bytes(bytes: [u8; 4]) -> Self {
-                $t::from_bytes(bytes)
-            }
-        }
-    };
+pub trait LongLong: Copy + Sized {
+    fn from_bytes_le(bytes: [u8; 8]) -> Self;
+    fn from_bytes_be(bytes: [u8; 8]) -> Self;
 }
 
-macro_rules! LongLongImpl {
-    ($t:ident) => {
-        EndianTypeImpl!($t);
-
-        impl LongLong for $t {
-            fn from_bytes(bytes: [u8; 8]) -> Self {
-                $t::from_bytes(bytes)
-            }
-        }
-    };
+impl LongLong for u64 {
+    fn from_bytes_le(bytes: [u8; 8]) -> u64 {
+        u64::from_le(u64::from_bytes(bytes))
+    }
+    fn from_bytes_be(bytes: [u8; 8]) -> u64 {
+        u64::from_be(u64::from_bytes(bytes))
+    }
 }
 
-ShortImpl!(u16);
-LongImpl!(u32);
-LongLongImpl!(u64);
-
-ShortImpl!(i16);
-LongImpl!(i32);
-LongLongImpl!(i64);
+impl LongLong for i64 {
+    fn from_bytes_le(bytes: [u8; 8]) -> i64 {
+        i64::from_le_bytes(bytes)
+    }
+    fn from_bytes_be(bytes: [u8; 8]) -> i64 {
+        i64::from_be_bytes(bytes)
+    }
+}
 
 impl Endian {
-    pub fn adjust<T: EndianType>(&self, x: T) -> T {
+    pub fn short_from_bytes<T: Short>(&self, bytes: [u8; 2]) -> T {
         match self {
-            Endian::Big => T::from_be(x),
-            Endian::Little => T::from_le(x),
+            Endian::Big => T::from_bytes_be(bytes),
+            Endian::Little => T::from_bytes_le(bytes),
+        }
+    }
+
+    pub fn long_from_bytes<T: Long>(&self, bytes: [u8; 4]) -> T {
+        match self {
+            Endian::Big => T::from_bytes_be(bytes),
+            Endian::Little => T::from_bytes_le(bytes),
+        }
+    }
+
+    pub fn longlong_from_bytes<T: LongLong>(&self, bytes: [u8; 8]) -> T {
+        match self {
+            Endian::Big => T::from_bytes_be(bytes),
+            Endian::Little => T::from_bytes_le(bytes),
         }
     }
 }
@@ -118,25 +126,24 @@ impl<'a, R: Read> EndianReader<'a, R> {
         }
     }
 
-    /// Read one `u16` from the reader.
-    pub fn read_u16(&mut self) -> Result<u16> {
+    /// Read short from the reader.
+    pub fn read_short<T: Short>(&mut self) -> Result<T> {
         let mut buf: [u8; 2] = [0; 2];
         self.inner.read_exact(&mut buf)?;
-
-        let value = u16::from_bytes(buf);
-        Ok(self.endian.adjust(value))
+        Ok(self.endian.short_from_bytes(buf))
     }
 
-    /// Read one `u32` from the reader.
-    pub fn read_u32(&mut self) -> Result<u32> {
+    /// Read long from the reader.
+    pub fn read_long<T: Long>(&mut self) -> Result<T> {
         let mut buf: [u8; 4] = [0; 4];
         self.inner.read_exact(&mut buf)?;
-        let value = u32::from_bytes(buf);
-        let ret = match self.endian {
-            Endian::Big => u32::from_be(value),
-            Endian::Little => u32::from_le(value),
-        };
-        Ok(ret)
+        Ok(self.endian.long_from_bytes(buf))
+    }
+    /// Read long from the reader.
+    pub fn read_longlong<T: LongLong>(&mut self) -> Result<T> {
+        let mut buf: [u8; 8] = [0; 8];
+        self.inner.read_exact(&mut buf)?;
+        Ok(self.endian.longlong_from_bytes(buf))
     }
 }
 
@@ -150,15 +157,15 @@ mod tests {
         let mut cursor = Cursor::new(&bytes);
         {
             let mut be_reader = EndianReader::new(&mut cursor, Endian::Big);
-            assert_eq!(0x1122, be_reader.read_u16().unwrap());
-            assert_eq!(0x33445566, be_reader.read_u32().unwrap());
+            assert_eq!(0x1122u16, be_reader.read_short().unwrap());
+            assert_eq!(0x33445566u32, be_reader.read_long().unwrap());
         }
 
         cursor.set_position(0);
         {
             let mut le_reader = EndianReader::new(&mut cursor, Endian::Little);
-            assert_eq!(0x2211, le_reader.read_u16().unwrap());
-            assert_eq!(0x66554433, le_reader.read_u32().unwrap());
+            assert_eq!(0x2211u16, le_reader.read_short().unwrap());
+            assert_eq!(0x66554433u32, le_reader.read_long().unwrap());
         }
     }
 }

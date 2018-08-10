@@ -11,38 +11,38 @@ macro_rules! tags_id_definition {
         $name:ident | $value:expr => $desc:expr,
     )*} => {
         #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-        pub enum ID {
+        pub enum Tag {
             $($name,)*
             Unknown(u16)
         }
 
-        impl From<u16> for ID {
-            fn from(value: u16) -> ID {
+        impl From<u16> for Tag {
+            fn from(value: u16) -> Tag {
                 match value {
-                    $( $value => ID::$name,)*
-                    _ => ID::Unknown(value)
+                    $( $value => Tag::$name,)*
+                    _ => Tag::Unknown(value)
                 }
         }
       }
 
-      impl Display for ID {
+      impl Display for Tag {
           fn fmt(&self, f: &mut Formatter) -> Result<(),Error> {
               match self {
-                $( ID::$name => {
+                $( Tag::$name => {
                     write!(f, stringify!($name ($value): $desc))
                 })*,
-                ID::Unknown(value) => { write!(f, "Unkown value: {}", value) }
+                Tag::Unknown(value) => { write!(f, "Unkown value: {}", value) }
               }
           }
       }
 
-          impl Hash for ID {
+          impl Hash for Tag {
           fn hash<H: Hasher>(&self, state: &mut H) {
               match self {
-                  $( ID::$name => {
+                  $( Tag::$name => {
                       $value.hash(state);
                   })*
-                  ID::Unknown(val) => {
+                  Tag::Unknown(val) => {
                       0xFFFF.hash(state);
                       val.hash(state);
 
@@ -93,9 +93,9 @@ tags_id_definition! {
     Predictor | 0x13d => "This section defines a Predictor that greatly improves compression ratios for some images.",
 }
 
-pub trait TIFFTag: Sized {
+pub trait Field: Sized {
     /// The `Tag` corresponding to this value
-    fn tag() -> ID;
+    fn tag() -> Tag;
     /// A function creating `Self` from one `IFDValue`
     fn new_from_value(value: &IFDValue) -> Option<Self>;
 }
@@ -106,8 +106,8 @@ macro_rules! short_long_value {
         #[derive(Debug)]
         pub struct $type(pub u32);
 
-        impl TIFFTag for $type {
-            fn tag() -> ID {
+        impl Field for $type {
+            fn tag() -> Tag {
                 $tag
             }
 
@@ -128,8 +128,8 @@ macro_rules! short_value {
         #[derive(Debug)]
         pub struct $type(pub u16);
 
-        impl TIFFTag for $type {
-            fn tag() -> ID {
+        impl Field for $type {
+            fn tag() -> Tag {
                 $tag
             }
 
@@ -149,8 +149,8 @@ macro_rules! long_value {
         #[derive(Debug)]
         pub struct $type(pub u16);
 
-        impl TIFFTag for $type {
-            fn tag() -> ID {
+        impl Field for $type {
+            fn tag() -> Tag {
                 $tag
             }
 
@@ -176,9 +176,9 @@ pub enum PhotometricInterpretation {
     YCbCr,
 }
 
-impl TIFFTag for PhotometricInterpretation {
-    fn tag() -> ID {
-        ID::PhotometricInterpretation
+impl Field for PhotometricInterpretation {
+    fn tag() -> Tag {
+        Tag::PhotometricInterpretation
     }
 
     fn new_from_value(value: &IFDValue) -> Option<PhotometricInterpretation> {
@@ -198,13 +198,13 @@ impl TIFFTag for PhotometricInterpretation {
 short_long_value! {
     #[doc = "The number of columns in the image, i.e., the number of pixels per row."]
     ImageWidth,
-    ID::ImageWidth
+    Tag::ImageWidth
 }
 
 short_long_value!{
     #[doc = "The number of rows of pixels in the image."]
     ImageLength,
-    ID::ImageLength
+    Tag::ImageLength
 }
 
 /// The unit of measurement for XResolution and YResolution
@@ -221,9 +221,9 @@ impl Default for ResolutionUnit {
     }
 }
 
-impl TIFFTag for ResolutionUnit {
-    fn tag() -> ID {
-        ID::ResolutionUnit
+impl Field for ResolutionUnit {
+    fn tag() -> Tag {
+        Tag::ResolutionUnit
     }
 
     fn new_from_value(value: &IFDValue) -> Option<ResolutionUnit> {
@@ -240,9 +240,9 @@ impl TIFFTag for ResolutionUnit {
 #[derive(Debug, Eq, PartialEq)]
 pub struct StripOffsets(pub Vec<u32>);
 
-impl TIFFTag for StripOffsets {
-    fn tag() -> ID {
-        ID::StripOffsets
+impl Field for StripOffsets {
+    fn tag() -> Tag {
+        Tag::StripOffsets
     }
 
     fn new_from_value(value: &IFDValue) -> Option<StripOffsets> {
@@ -258,9 +258,9 @@ impl TIFFTag for StripOffsets {
 #[derive(Debug, Eq, PartialEq)]
 pub struct StripByteCounts(pub Vec<u32>);
 
-impl TIFFTag for StripByteCounts {
-    fn tag() -> ID {
-        ID::StripByteCounts
+impl Field for StripByteCounts {
+    fn tag() -> Tag {
+        Tag::StripByteCounts
     }
     fn new_from_value(value: &IFDValue) -> Option<StripByteCounts> {
         match value {
@@ -274,7 +274,7 @@ impl TIFFTag for StripByteCounts {
 short_value!{
     #[doc = "The number of components per pixel. This number is 3 for RGB images, unless extra samples are present. See the ExtraSamples field for further information."]
     SamplesPerPixel,
-    ID::SamplesPerPixel
+    Tag::SamplesPerPixel
 }
 
 impl Default for SamplesPerPixel {
@@ -286,7 +286,7 @@ impl Default for SamplesPerPixel {
 short_long_value! {
     #[doc = "The number of rows per strip."]
     RowsPerStrip,
-    ID::RowsPerStrip
+    Tag::RowsPerStrip
 }
 
 /// How the components of each pixel are stored.
@@ -296,9 +296,9 @@ pub enum PlanarConfiguration {
     Planar,
 }
 
-impl TIFFTag for PlanarConfiguration {
-    fn tag() -> ID {
-        ID::PlanarConfiguration
+impl Field for PlanarConfiguration {
+    fn tag() -> Tag {
+        Tag::PlanarConfiguration
     }
 
     fn new_from_value(value: &IFDValue) -> Option<PlanarConfiguration> {
@@ -314,9 +314,9 @@ impl TIFFTag for PlanarConfiguration {
 #[derive(Debug, Eq, PartialEq)]
 pub struct BitsPerSample(pub Vec<u16>);
 
-impl TIFFTag for BitsPerSample {
-    fn tag() -> ID {
-        ID::BitsPerSample
+impl Field for BitsPerSample {
+    fn tag() -> Tag {
+        Tag::BitsPerSample
     }
 
     fn new_from_value(value: &IFDValue) -> Option<BitsPerSample> {
@@ -330,9 +330,9 @@ impl TIFFTag for BitsPerSample {
 /// The number of pixels per ResolutionUnit in the ImageWidth direction.
 pub struct XResolution(pub Rational<u32>);
 
-impl TIFFTag for XResolution {
-    fn tag() -> ID {
-        ID::XResolution
+impl Field for XResolution {
+    fn tag() -> Tag {
+        Tag::XResolution
     }
     fn new_from_value(value: &IFDValue) -> Option<XResolution> {
         match value {
@@ -344,9 +344,9 @@ impl TIFFTag for XResolution {
 
 /// The number of pixels per ResolutionUnit in the ImageLength direction.
 pub struct YResolution(pub Rational<u32>);
-impl TIFFTag for YResolution {
-    fn tag() -> ID {
-        ID::YResolution
+impl Field for YResolution {
+    fn tag() -> Tag {
+        Tag::YResolution
     }
 
     fn new_from_value(value: &IFDValue) -> Option<YResolution> {
@@ -364,9 +364,9 @@ pub enum Predictor {
     HorizontalDifferencing,
 }
 
-impl TIFFTag for Predictor {
-    fn tag() -> ID {
-        ID::Predictor
+impl Field for Predictor {
+    fn tag() -> Tag {
+        Tag::Predictor
     }
 
     fn new_from_value(value: &IFDValue) -> Option<Predictor> {
@@ -386,9 +386,9 @@ pub enum SubfileType {
     SinglePageImage,
 }
 
-impl TIFFTag for SubfileType {
-    fn tag() -> ID {
-        ID::SubfileType
+impl Field for SubfileType {
+    fn tag() -> Tag {
+        Tag::SubfileType
     }
 
     fn new_from_value(value: &IFDValue) -> Option<SubfileType> {
@@ -404,7 +404,7 @@ impl TIFFTag for SubfileType {
 long_value! {
     #[doc = "Replaces the old SubfileType field, due to limitations in the definition of that field."]
     NewSubfileType,
-    ID::NewSubfileType
+    Tag::NewSubfileType
 }
 
 impl NewSubfileType {
@@ -428,9 +428,9 @@ pub enum Compression {
     PackBits,
 }
 
-impl TIFFTag for Compression {
-    fn tag() -> ID {
-        ID::Compression
+impl Field for Compression {
+    fn tag() -> Tag {
+        Tag::Compression
     }
 
     fn new_from_value(value: &IFDValue) -> Option<Compression> {
@@ -446,9 +446,9 @@ impl TIFFTag for Compression {
 /// Name and version number of the software package(s) used to create the image.
 pub struct Software(pub String);
 
-impl TIFFTag for Software {
-    fn tag() -> ID {
-        ID::Software
+impl Field for Software {
+    fn tag() -> Tag {
+        Tag::Software
     }
 
     fn new_from_value(value: &IFDValue) -> Option<Software> {
@@ -461,9 +461,9 @@ impl TIFFTag for Software {
 
 pub struct DateTime(pub chrono::DateTime<chrono::FixedOffset>);
 
-impl TIFFTag for DateTime {
-    fn tag() -> ID {
-        ID::DateTime
+impl Field for DateTime {
+    fn tag() -> Tag {
+        Tag::DateTime
     }
 
     fn new_from_value(value: &IFDValue) -> Option<DateTime> {

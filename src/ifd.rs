@@ -4,7 +4,7 @@ use std::convert::From;
 use std::io::{Error, ErrorKind, Read, Result, Seek, SeekFrom};
 use std::iter::Iterator;
 
-use tag::ID;
+use tag::Tag;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Rational<T: Long> {
@@ -225,7 +225,7 @@ impl IFDValue {
 /// mentionned inside the tiff specification. This is the base
 #[derive(Debug)]
 pub struct IFDEntry {
-    pub tag: ID,
+    pub tag: Tag,
     pub value_type: u16,
     pub count: u32,
     pub value_offset: u32,
@@ -233,12 +233,12 @@ pub struct IFDEntry {
 
 #[derive(Debug)]
 pub struct IFD {
-    entries: HashMap<ID, IFDEntry>,
+    entries: HashMap<Tag, IFDEntry>,
     next: usize,
 }
 
 impl IFD {
-    pub fn get_entry_from_tag(&self, tag: ID) -> Option<&IFDEntry> {
+    pub fn get_entry_from_tag(&self, tag: Tag) -> Option<&IFDEntry> {
         self.entries.get(&tag)
     }
 }
@@ -283,7 +283,7 @@ impl<'a, R: Read + Seek> Iterator for IFDIterator<'a, R> {
             return None;
         }
 
-        let mut map = HashMap::<ID, IFDEntry>::new();
+        let mut map = HashMap::<Tag, IFDEntry>::new();
         for _i in 0..entry_count {
             // Tag
             let tag = self.reader.read_u16().ok()?;
@@ -295,7 +295,7 @@ impl<'a, R: Read + Seek> Iterator for IFDIterator<'a, R> {
             let count = self.reader.read_u32().ok()?;
             let value_offset = self.reader.read_u32().ok()?;
 
-            let tag_value = ID::from(tag);
+            let tag_value = Tag::from(tag);
             let entry = IFDEntry {
                 tag: tag_value,
                 value_type: value_type_raw,

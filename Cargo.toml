@@ -5,3 +5,4 @@ authors = ["Yannick Heinrich <yannick.heinrich@gmail.com>"]
 
 [dependencies]
 chrono = "0.4"
+error-chain = "0.12.0"

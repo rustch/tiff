@@ -1,14 +1,29 @@
 use endian::Endian;
-use ifd::{IFDEntry, IFDIterator, IFDValue, IFD};
-use std::io::{Error, ErrorKind, Read, Result, Seek};
-use tag::TIFFTag;
+use ifd::{IFDIterator, IFDValue, IFD};
+use std::io::{Read, Seek};
+use tag::Field;
 const TIFF_LE: u16 = 0x4949;
 const TIFF_BE: u16 = 0x4D4D;
+
+error_chain!{
+      foreign_links {
+        Io(::std::io::Error) ;
+    }
+    errors {
+        InvalidTIFFFile(v: &'static str) {
+            description("Invalid TIFF file"),
+            display("INvalid TIFF File: {}", v),
+        }
+
+        DirectoryIndexOutOfBounds
+    }
+}
 
 pub struct TIFF<R> {
     inner: R,
     ifds: Vec<IFD>,
     endian: Endian,
+    current_directory_index: usize,
 }
 
 impl<R: Read + Seek> TIFF<R> {
@@ -23,7 +38,7 @@ impl<R: Read + Seek> TIFF<R> {
             TIFF_LE => Endian::Little,
             TIFF_BE => Endian::Big,
             _ => {
-                return Err(Error::new(ErrorKind::InvalidInput, "Non recognized file"));
+                return Err(ErrorKind::InvalidTIFFFile("Invalid magic endian bytes").into());
             }
         };
 
@@ -36,7 +51,7 @@ impl<R: Read + Seek> TIFF<R> {
         };
 
         if tiff_magic != 42u16 {
-            return Err(Error::new(ErrorKind::InvalidInput, "Non recognized file"));
+            return Err(ErrorKind::InvalidTIFFFile("Invalid magic byte").into());
         }
 
         // Read
@@ -50,15 +65,15 @@ impl<R: Read + Seek> TIFF<R> {
 
         let ifds: Vec<IFD> = IFDIterator::new(&mut reader, offset as usize, order).collect();
         if ifds.len() < 1 {
-            Err(Error::new(
-                ErrorKind::InvalidInput,
-                "A TIFF file shoudl have at least one IFD",
-            ))
+            return Err(
+                ErrorKind::InvalidTIFFFile("TIFF file should have one least one directory").into(),
+            );
         } else {
             Ok(TIFF {
                 inner: reader,
                 ifds: ifds,
                 endian: order,
+                current_directory_index: 0,
             })
         }
     }
@@ -68,25 +83,23 @@ impl<R: Read + Seek> TIFF<R> {
         self.endian
     }
 
-    /// Returns a reference to the IFD directories contained inside the reader.
-    pub fn directory_entries(&self) -> &Vec<IFD> {
-        &self.ifds
-    }
-
     /// Look for a specific tag in all IFDS.
-    pub fn get_tiff_value<T: TIFFTag>(&mut self) -> Option<T> {
+    pub fn get_field<T: Field>(&mut self) -> Option<T> {
         // Check if we have an entry inside any of the directory
 
         let tag = T::tag();
-        let ifd_entry: &IFDEntry;
-        ifd_entry = self
-            .ifds
-            .iter()
-            .flat_map(|entry| entry.get_entry_from_tag(tag))
-            .next()?;
-
+        let ifd_entry = self.ifds[self.current_directory_index].get_entry_from_tag(tag)?;
         let value = IFDValue::new_from_entry(&mut self.inner, ifd_entry, self.endian).ok()?;
         T::new_from_value(&value)
+    }
+
+    pub fn set_directory_index(&mut self, index: usize) -> Result<()> {
+        if index > self.ifds.len() - 1 {
+            Err(ErrorKind::DirectoryIndexOutOfBounds.into())
+        } else {
+            self.current_directory_index = index;
+            Ok(())
+        }
     }
 
     /// Access to the IFDS contained inside the image
@@ -107,7 +120,7 @@ mod tests {
     macro_rules! ensure_field {
         ($read:expr, $type:ty) => {
             $read
-                .get_tiff_value::<$type>()
+                .get_field::<$type>()
                 .expect(stringify!("We expect to be able to read" $type))
         };
     }

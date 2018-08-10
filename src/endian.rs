@@ -139,7 +139,9 @@ impl<'a, R: Read> EndianReader<'a, R> {
         self.inner.read_exact(&mut buf)?;
         Ok(self.endian.long_from_bytes(buf))
     }
+
     /// Read long from the reader.
+    #[allow(dead_code)]
     pub fn read_longlong<T: LongLong>(&mut self) -> Result<T> {
         let mut buf: [u8; 8] = [0; 8];
         self.inner.read_exact(&mut buf)?;

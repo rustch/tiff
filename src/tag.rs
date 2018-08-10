@@ -91,6 +91,43 @@ tags_id_definition! {
     ExtraSamples | 0x0152	=> "Description of extra components.",
     Copyright | 0x8298 => "Copyright notice.",
     Predictor | 0x13d => "This section defines a Predictor that greatly improves compression ratios for some images.",
+    T4Options | 0x124 => "See Compression=3. This field is made up of a set of 32 flag bits. Unused bits must be set to 0. Bit 0 is the low-order bit.",
+    T6Options | 0x125 => "See Compression=3. See Compression = 4. This field is made up of a set of 32 flag bits. Unused bits must be set to 0. Bit 0 is the low-order bit. The default value is 0 (all bits 0).",
+    DocumentName | 0x10D => "The name of the document from which this image was scanned.",
+    PageName | 0x11D => "The name of the page from which this image was scanned.",
+    PageNumber | 0x129 => "The page number of the page from which this image was scanned.",
+    XPosition | 0x11E => "X position of the image.",
+    YPosition | 0x11F => "Y position of the image.",
+    TileWidth | 0x142 => "The tile width in pixels. This is the number of columns in each tile.",
+    TileLength | 0x143 => "The tile length (height) in pixels. This is the number of rows in each tile.",
+    TileOffsets | 0x144 => "For each tile, the byte offset of that tile, as compressed and stored on disk.",
+    TileByteCounts | 0x145 => "For each tile, the number of (compressed) bytes in that tile.",
+    InkSet | 0x14c => "The set of inks used in a separated (PhotometricInterpretation=5) image.",
+    NumberOfInks | 0x14e => "The number of inks. Usually equal to SamplesPerPixel, unless there are extra samples.",
+    InkNames | 0x14d => "The name of each ink used in a separated (PhotometricInterpretation=5) image, written as a list of concatenated, NUL-terminated ASCII strings. The number of strings must be equal to NumberOfInks.",
+    DotRange | 0x150 => "The component values that correspond to a 0% dot and 100% dot. DotRange[0] corresponds to a 0% dot, and DotRange[1] corresponds to a 100% dot.",
+    TargetPrinter | 0x151 => "A description of the printing environment for which this separation is intended.",
+    HalftoneHints | 0x141 => "The purpose of the HalftoneHints field is to convey to the halftone function the range of gray levels within a colorimetrically-specified image that should retain tonal detail.",
+    SampleFormat | 0x153 => "This field specifies how to interpret each data sample in a pixel. Possible values are:",
+    SMinSampleValue | 0x154 => "This field specifies the minimum sample value. Note that a value should be given for each data sample. That is, if the image has 3 SamplesPerPixel, 3 values must be specified.",
+    SMaxSampleValue | 0x155 => "This new field specifies the maximum sample value.",
+    WhitePoint | 0x318 => "The chromaticity of the white point of the image.",
+    PrimaryChromaticities | 0x319 => "The chromaticities of the primaries of the image.",
+    TransferFunction | 0x301 => "Describes a transfer function for the image in tabular style.",
+    TransferRange | 0x156 => "Expands the range of the TransferFunction",
+    ReferenceBlackWhite | 0x532 => "Specifies a pair of headroom and footroom image data values (codes) for each pixel component",
+    YCbCrCoefficients | 0x211 => "The transformation from RGB to YC C image data",
+    YCbCrSubSampling | 0x212 => "Specifies the subsampling factors used for the chrominance components of a YC C image.",
+    YCbCrPositioning | 0x213 => "Specifies the positioning of subsampled chrominance components relative to luminance samples.",
+    JPEGProc | 0x200 => "This Field indicates the JPEG process used to produce the compressed data.",
+    JPEGInterchangeFormat | 0x201 => "This Field indicates whether a JPEG interchange format bitstream is present in the TIFF file",
+    JPEGInterchangeFormatLength | 0x202 => "This Field indicates the length in bytes of the JPEG interchange format bitstream.",
+    JPEGRestartInterval | 0x203 => "This Field indicates the length of the restart interval used in the compressed image data.",
+    JPEGLosslessPredictors | 0x205 => "This Field points to a list of lossless predictor-selection values, one per compo- nent.",
+    JPEGPointTransforms | 0x206 => "This Field points to a list of point transform values, one per component. This Field is relevant only for lossless processes.",
+    JPEGQTables | 0x207 => "This Field points to a list of offsets to the quantization tables, one per component.",
+    JPEGDCTables | 0x208 => "This Field points to a list of offsets to the DC Huffman tables or the lossless Huffman tables, one per component",
+    JPEGACTables | 0x209 => "This Field points to a list of offsets to the Huffman AC tables, one per component.",
 }
 
 pub trait Field: Sized {
@@ -98,6 +135,26 @@ pub trait Field: Sized {
     fn tag() -> Tag;
     /// A function creating `Self` from one `IFDValue`
     fn new_from_value(value: &IFDValue) -> Option<Self>;
+}
+macro_rules! ascii_value {
+    ($(#[$attr:meta])* $type:ident, $tag:expr) => {
+      $(#[$attr])*
+        #[derive(Debug)]
+        pub struct $type(pub String);
+
+        impl Field for $type {
+            fn tag() -> Tag {
+                $tag
+            }
+
+            fn new_from_value(value: &IFDValue) -> Option<$type> {
+                match value {
+                    IFDValue::Ascii(el) => Some($type(el[0].clone())),
+                    _ => None,
+                }
+            }
+        }
+    };
 }
 
 macro_rules! short_long_value {
@@ -157,6 +214,27 @@ macro_rules! long_value {
             fn new_from_value(value: &IFDValue) -> Option<$type> {
                 match value {
                     IFDValue::Long(el) => Some($type(el[0] as u16)),
+                    _ => None,
+                }
+            }
+        }
+    };
+}
+
+macro_rules! vec_short_u_value {
+    ($(#[$attr:meta])* $type:ident, $tag:expr) => {
+         $(#[$attr])*
+        #[derive(Debug)]
+        pub struct $type(pub Vec<u16>);
+
+        impl Field for $type {
+            fn tag() -> Tag {
+                $tag
+            }
+
+            fn new_from_value(value: &IFDValue) -> Option<$type> {
+                match value {
+                    IFDValue::Short(el) => Some($type(el.clone())),
                     _ => None,
                 }
             }
@@ -443,20 +521,10 @@ impl Field for Compression {
     }
 }
 
-/// Name and version number of the software package(s) used to create the image.
-pub struct Software(pub String);
-
-impl Field for Software {
-    fn tag() -> Tag {
-        Tag::Software
-    }
-
-    fn new_from_value(value: &IFDValue) -> Option<Software> {
-        match value {
-            IFDValue::Ascii(val) => Some(Software(val[0].clone())),
-            _ => None,
-        }
-    }
+ascii_value! {
+    #[doc = "Name and version number of the software package(s) used to create the image."]
+    Software,
+    Tag::Software
 }
 
 pub struct DateTime(pub chrono::DateTime<chrono::FixedOffset>);
@@ -475,4 +543,256 @@ impl Field for DateTime {
             _ => None,
         }
     }
+}
+
+short_value!{
+    #[doc = "The length of the dithering or halftoning matrix used to create a dithered or halftoned bilevel file."]
+    CellLength,
+    Tag::CellLength
+}
+
+short_value!{
+    #[doc = "The width of the dithering or halftoning matrix used to create a dithered or halftoned bilevel file;"]
+    CellWidth,
+    Tag::CellWidth
+}
+
+/// The color map for colored images
+///
+/// This field defines a Red-Green-Blue color map (often called a lookup table) for palette color images.
+/// In a palette-color image, a pixel value is used to index into an RGB-lookup table.
+/// For example, a palette-color pixel having a value of 0 would be displayed
+/// according to the 0th Red, Green, Blue triplet.
+/// In a TIFF ColorMap, all the Red values come first, followed by the Green values, then the Blue values.
+/// In the ColorMap, black is represented by 0,0,0 and white is represented by 65535, 65535, 65535.
+pub struct ColorMap(Vec<u16>);
+
+impl Field for ColorMap {
+    fn tag() -> Tag {
+        Tag::ColorMap
+    }
+
+    fn new_from_value(value: &IFDValue) -> Option<ColorMap> {
+        match value {
+            IFDValue::Short(e) => Some(ColorMap(e.clone())),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum ExtraSampleDataValue {
+    Unspecified,
+    AssociatedAlpha,
+    UnassociatedAlpha,
+}
+
+impl ExtraSampleDataValue {
+    fn from_value(value: u16) -> ExtraSampleDataValue {
+        match value {
+            0 => ExtraSampleDataValue::Unspecified,
+            1 => ExtraSampleDataValue::AssociatedAlpha,
+            2 => ExtraSampleDataValue::UnassociatedAlpha,
+            _ => panic!("Invalid ExtraSampleDataValue"),
+        }
+    }
+}
+
+ascii_value! {
+      #[doc = "Copyright notice."]
+      Copyright,
+      Tag::Copyright
+}
+/// Description of extra components.
+///
+/// Specifies that each pixel has m extra components whose interpretation is defined by one of the values l
+/// isted below. When this field is used, the SamplesPerPixel field has a value greater than the
+/// PhotometricInterpretation field suggests.
+/// For example, full-color RGB data normally has SamplesPerPixel=3.
+/// If SamplesPerPixel is greater than 3, then the ExtraSamples field describes the meaning of the extra samples.
+/// If SamplesPerPixel is, say, 5 then ExtraSamples will contain 2 values, one for each extra sample.
+struct ExtraSamples(pub Vec<ExtraSampleDataValue>);
+
+impl Field for ExtraSamples {
+    fn tag() -> Tag {
+        Tag::ExtraSamples
+    }
+
+    fn new_from_value(value: &IFDValue) -> Option<ExtraSamples> {
+        let raw = match value {
+            IFDValue::Short(e) => e,
+            _ => return None,
+        };
+
+        let values: Vec<ExtraSampleDataValue> = raw
+            .iter()
+            .map(|e| ExtraSampleDataValue::from_value(*e))
+            .collect();
+        Some(ExtraSamples(values))
+    }
+}
+
+/// The logical order of bits within a byte.
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum FillOrder {
+    LowerColumnsToHigherOrderBits,
+    LowerColumnsToLowerOrderBits,
+}
+
+impl Field for FillOrder {
+    fn tag() -> Tag {
+        Tag::FillOrder
+    }
+
+    fn new_from_value(value: &IFDValue) -> Option<FillOrder> {
+        match value {
+            IFDValue::Short(e) if e[0] == 1 => Some(FillOrder::LowerColumnsToHigherOrderBits),
+            IFDValue::Short(e) if e[0] == 2 => Some(FillOrder::LowerColumnsToHigherOrderBits),
+            _ => None,
+        }
+    }
+}
+
+impl Default for FillOrder {
+    fn default() -> FillOrder {
+        FillOrder::LowerColumnsToHigherOrderBits
+    }
+}
+
+long_value! {
+    #[doc = "For each string of contiguous unused bytes in a TIFF file, the number of bytes in the string."]
+    FreeByteCounts,
+    Tag::FreeByteCounts
+}
+
+long_value! {
+    #[doc = "For each string of contiguous unused bytes in a TIFF file, the byte offset of the string."]
+    FreeOffsets,
+    Tag::FreeOffsets
+}
+
+vec_short_u_value! {
+    #[doc = "For grayscale data, the optical density of each possible pixel value."]
+    GrayResponseCurve,
+    Tag::GrayResponseCurve
+}
+
+/// The precision of the information contained in the GrayResponseCurve.
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum GrayResponseUnit {
+    TenthsOfUnit,
+    HundredthsOfUnit,
+    ThousandthsOfUnit,
+    TenThousandthsOfUnit,
+    HundredThousandthsOfUnit,
+}
+
+impl Default for GrayResponseUnit {
+    fn default() -> GrayResponseUnit {
+        GrayResponseUnit::HundredthsOfUnit
+    }
+}
+impl Field for GrayResponseUnit {
+    fn tag() -> Tag {
+        Tag::GrayResponseUnit
+    }
+
+    fn new_from_value(value: &IFDValue) -> Option<GrayResponseUnit> {
+        match value {
+            IFDValue::Short(e) if e[0] == 1 => Some(GrayResponseUnit::TenthsOfUnit),
+            IFDValue::Short(e) if e[0] == 2 => Some(GrayResponseUnit::HundredthsOfUnit),
+            IFDValue::Short(e) if e[0] == 3 => Some(GrayResponseUnit::ThousandthsOfUnit),
+            IFDValue::Short(e) if e[0] == 4 => Some(GrayResponseUnit::TenThousandthsOfUnit),
+            IFDValue::Short(e) if e[0] == 5 => Some(GrayResponseUnit::HundredThousandthsOfUnit),
+            _ => None,
+        }
+    }
+}
+
+ascii_value! {
+    #[doc = "The computer and/or operating system in use at the time of image creation."]
+    HostComputer,
+    Tag::HostComputer
+}
+
+ascii_value! {
+    #[doc = "A string that describes the subject of the image."]
+    ImageDescription,
+    Tag::ImageDescription
+}
+
+ascii_value! {
+    #[doc = "The scanner manufacturer."]
+    Make,
+    Tag::Make
+}
+
+vec_short_u_value! {
+    #[doc = "The maximum component value used."]
+    MaxSampleValue,
+    Tag::MaxSampleValue
+}
+
+vec_short_u_value! {
+    #[doc = "The minimum component value used."]
+    MinSampleValue,
+    Tag::MinSampleValue
+}
+
+ascii_value! {
+    #[doc = "The scanner model name or number."]
+    Model,
+    Tag::Model
+}
+
+short_value! {
+    #[doc = "For black and white TIFF files that represent shades of gray, the technique used to convert from gray to black and white pixels."]
+    Threshholding,
+    Tag::Threshholding
+}
+
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum Orientation {
+    RTopCLeft,
+    RTopCRight,
+    RBottomCRight,
+    RBottomCLeft,
+    RLeftCTop,
+    RRightCTop,
+    RRightCBottom,
+    RLeftCBottom,
+}
+
+impl Field for Orientation {
+    fn tag() -> Tag {
+        Tag::Orientation
+    }
+
+    fn new_from_value(value: &IFDValue) -> Option<Orientation> {
+        let val = match value {
+            IFDValue::Short(v) => v[0],
+            _ => return None,
+        };
+
+        let ret = match val {
+            1 => Orientation::RTopCLeft,
+            2 => Orientation::RTopCRight,
+            3 => Orientation::RBottomCRight,
+            4 => Orientation::RBottomCLeft,
+            5 => Orientation::RLeftCTop,
+            6 => Orientation::RRightCTop,
+            7 => Orientation::RRightCBottom,
+            8 => Orientation::RLeftCBottom,
+            _ => return None,
+        };
+
+        Some(ret)
+    }
+}
+
+long_value! {
+    #[doc = "See Compression=3. This field is made up of a set of 32 flag bits. Unused bits must be set to 0. Bit 0 is the low-order bit."]
+    T4Options,
+    Tag::T4Options
 }

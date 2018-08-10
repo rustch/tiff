@@ -101,11 +101,6 @@ impl<R: Read + Seek> TIFF<R> {
             Ok(())
         }
     }
-
-    /// Access to the IFDS contained inside the image
-    pub fn ifds(&self) -> &Vec<IFD> {
-        &self.ifds
-    }
 }
 
 #[cfg(test)]

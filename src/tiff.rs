@@ -1,6 +1,8 @@
 use endian::Endian;
 use ifd::{IFDIterator, IFDValue, IFD};
 use std::io::{Read, Seek};
+use std::iter::Iterator;
+
 use tag::Field;
 const TIFF_LE: u16 = 0x4949;
 const TIFF_BE: u16 = 0x4D4D;
@@ -93,6 +95,7 @@ impl<R: Read + Seek> TIFF<R> {
         T::new_from_value(&value)
     }
 
+    /// Set the current reading TIFF directory
     pub fn set_directory_index(&mut self, index: usize) -> Result<()> {
         if index > self.ifds.len() - 1 {
             Err(ErrorKind::DirectoryIndexOutOfBounds.into())
@@ -100,6 +103,11 @@ impl<R: Read + Seek> TIFF<R> {
             self.current_directory_index = index;
             Ok(())
         }
+    }
+
+    /// The underlying directories
+    pub fn ifds(&self) -> &Vec<IFD> {
+        &self.ifds
     }
 }
 

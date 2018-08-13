@@ -241,6 +241,26 @@ macro_rules! vec_short_u_value {
         }
     };
 }
+macro_rules! rational_value {
+    ($(#[$attr:meta])* $type:ident, $tag:expr) => {
+         $(#[$attr])*
+        #[derive(Debug)]
+        pub struct $type(pub Rational<u32>);
+
+        impl Field for $type {
+            fn tag() -> Tag {
+                $tag
+            }
+
+            fn new_from_value(value: &IFDValue) -> Option<$type> {
+                match value {
+                    IFDValue::Rational(el) => Some($type(el[0])),
+                    _ => None,
+                }
+            }
+        }
+    };
+}
 
 /// This Field indicates the color space of the image.
 #[derive(Debug, PartialEq, Eq)]
@@ -405,34 +425,16 @@ impl Field for BitsPerSample {
     }
 }
 
-/// The number of pixels per ResolutionUnit in the ImageWidth direction.
-pub struct XResolution(pub Rational<u32>);
-
-impl Field for XResolution {
-    fn tag() -> Tag {
-        Tag::XResolution
-    }
-    fn new_from_value(value: &IFDValue) -> Option<XResolution> {
-        match value {
-            IFDValue::Rational(val) => Some(XResolution(val[0])),
-            _ => None,
-        }
-    }
+rational_value! {
+    #[doc = "The number of pixels per ResolutionUnit in the ImageWidth direction."]
+    XResolution,
+    Tag::XResolution
 }
 
-/// The number of pixels per ResolutionUnit in the ImageLength direction.
-pub struct YResolution(pub Rational<u32>);
-impl Field for YResolution {
-    fn tag() -> Tag {
-        Tag::YResolution
-    }
-
-    fn new_from_value(value: &IFDValue) -> Option<YResolution> {
-        match value {
-            IFDValue::Rational(val) => Some(YResolution(val[0])),
-            _ => None,
-        }
-    }
+rational_value! {
+    #[doc = "The number of pixels per ResolutionUnit in the ImageLength direction."]
+    YResolution,
+    Tag::YResolution
 }
 
 /// A predictor is a mathematical operator that is applied to the image data before an encoding scheme is applied.
@@ -795,4 +797,115 @@ long_value! {
     #[doc = "See Compression=3. This field is made up of a set of 32 flag bits. Unused bits must be set to 0. Bit 0 is the low-order bit."]
     T4Options,
     Tag::T4Options
+}
+
+long_value! {
+    #[doc = "See Compression = 4. This field is made up of a set of 32 flag bits. Unused bits must be set to 0. Bit 0 is the low-order bit. The default value is 0 (all bits 0)."]
+    T6Options,
+    Tag::T6Options
+}
+
+ascii_value! {
+    #[doc = "The name of the document from which this image was scanned."]
+    DocumentName,
+    Tag::DocumentName
+}
+
+ascii_value! {
+    #[doc = "The name of the page from which this image was scanned."]
+    PageName,
+    Tag::PageName
+}
+
+short_value! {
+    #[doc = "The page number of the page from which this image was scanned."]
+    PageNumber,
+    Tag::PageNumber
+}
+
+rational_value! {
+    #[doc = "X position of the image."]
+    XPosition,
+    Tag::XPosition
+}
+
+rational_value! {
+    #[doc = "Y position of the image."]
+    YPosition,
+    Tag::YPosition
+}
+
+short_long_value! {
+    #[doc = "The tile width in pixels."]
+    TileWidth,
+    Tag::TileWidth
+}
+
+short_long_value! {
+    #[doc = "The tile length (height) in pixels"]
+    TileLength,
+    Tag::TileLength
+}
+
+long_value! {
+    #[doc = "For each tile, the byte offset of that tile, as compressed and stored on disk"]
+    TileOffsets,
+    Tag::TileOffsets
+}
+
+short_long_value! {
+    #[doc = "For each tile, the number of (compressed) bytes in that tile."]
+    TileByteCounts,
+    Tag::TileByteCounts
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum InkSet {
+    CMYK,
+    NotCMYK,
+}
+
+impl Field for InkSet {
+    fn tag() -> Tag {
+        Tag::InkSet
+    }
+
+    fn new_from_value(value: &IFDValue) -> Option<InkSet> {
+        let val = match value {
+            IFDValue::Short(val) => val[0],
+            _ => return None,
+        };
+
+        let res = match val {
+            1 => InkSet::CMYK,
+            2 => InkSet::NotCMYK,
+            _ => return None,
+        };
+
+        Some(res)
+    }
+}
+
+short_value! {
+    #[doc = "The number of inks. Usually equal to SamplesPerPixel, unless there are extra samples."]
+    NumberOfInks,
+    Tag::NumberOfInks
+}
+
+impl Default for NumberOfInks {
+    fn default() -> NumberOfInks {
+        NumberOfInks(4)
+    }
+}
+
+ascii_value! {
+    #[doc = "The name of each ink used in a separated"]
+    InkNames,
+    Tag::InkNames
+}
+
+ascii_value! {
+    #[doc = "A description of the printing environment for which this separation is intended."]
+    TargetPrinter,
+    Tag::TargetPrinter
 }

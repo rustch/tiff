@@ -92,7 +92,7 @@ impl<R: Read + Seek> TIFF<R> {
         let tag = T::tag();
         let ifd_entry = self.ifds[self.current_directory_index].get_entry_from_tag(tag)?;
         let value = IFDValue::new_from_entry(&mut self.inner, ifd_entry, self.endian).ok()?;
-        T::new_from_value(&value)
+        T::decode_from_value(&value)
     }
 
     /// Set the current reading TIFF directory

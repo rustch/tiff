@@ -4,7 +4,6 @@ use chrono;
 use std::convert::From;
 use std::fmt::{Display, Error, Formatter};
 use std::hash::{Hash, Hasher};
-use std::io::Write;
 
 macro_rules! tags_id_definition {
     {$(
@@ -159,7 +158,7 @@ macro_rules! ascii_value {
             }
 
             fn encode_to_value(&self) -> Option<IFDValue> {
-                Some(IFDValue::Ascii(vec![self.0]))
+                Some(IFDValue::Ascii(vec![self.0.clone()]))
             }
         }
     };
@@ -225,7 +224,7 @@ macro_rules! long_value {
     ($(#[$attr:meta])* $type:ident, $tag:expr) => {
          $(#[$attr])*
         #[derive(Debug)]
-        pub struct $type(pub u16);
+        pub struct $type(pub u32);
 
         impl Field for $type {
             fn tag() -> Tag {
@@ -234,7 +233,7 @@ macro_rules! long_value {
 
             fn decode_from_value(value: &IFDValue) -> Option<$type> {
                 match value {
-                    IFDValue::Long(el) => Some($type(el[0] as u16)),
+                    IFDValue::Long(el) => Some($type(el[0])),
                     _ => None,
                 }
             }
@@ -265,7 +264,7 @@ macro_rules! vec_short_u_value {
             }
 
             fn encode_to_value(&self) -> Option<IFDValue> {
-                 Some(IFDValue::Short(self.0))
+                 Some(IFDValue::Short(self.0.clone()))
             }
         }
     };
@@ -334,7 +333,6 @@ impl Field for PhotometricInterpretation {
             PhotometricInterpretation::TransparencyMask => 4,
             PhotometricInterpretation::CMYK => 5,
             PhotometricInterpretation::YCbCr => 6,
-            _ => return None,
         };
 
         Some(IFDValue::Short(vec![short_value]))
@@ -386,7 +384,6 @@ impl Field for ResolutionUnit {
             ResolutionUnit::None => 1,
             ResolutionUnit::Inch => 2,
             ResolutionUnit::Centimeter => 3,
-            _ => return None,
         };
 
         Some(IFDValue::Short(vec![raw]))
@@ -409,6 +406,23 @@ impl Field for StripOffsets {
             _ => None,
         }
     }
+
+    fn encode_to_value(&self) -> Option<IFDValue> {
+        let is_big = self
+            .0
+            .iter()
+            .filter(|x| **x > (::std::u16::MAX as u32))
+            .collect::<Vec<&u32>>()
+            .len()
+            > 0;
+
+        if is_big {
+            Some(IFDValue::Long(self.0.clone()))
+        } else {
+            let lower = self.0.iter().map(|e| *e as u16).collect();
+            Some(IFDValue::Short(lower))
+        }
+    }
 }
 
 /// For each strip, the number of bytes in the strip after compression.
@@ -424,6 +438,23 @@ impl Field for StripByteCounts {
             IFDValue::Short(el) => Some(StripByteCounts(el.iter().map(|e| *e as u32).collect())),
             IFDValue::Long(el) => Some(StripByteCounts(el.clone())),
             _ => None,
+        }
+    }
+
+    fn encode_to_value(&self) -> Option<IFDValue> {
+        let is_big = self
+            .0
+            .iter()
+            .filter(|x| **x > (::std::u16::MAX as u32))
+            .collect::<Vec<&u32>>()
+            .len()
+            > 0;
+
+        if is_big {
+            Some(IFDValue::Long(self.0.clone()))
+        } else {
+            let lower = self.0.iter().map(|e| *e as u16).collect();
+            Some(IFDValue::Short(lower))
         }
     }
 }
@@ -465,6 +496,15 @@ impl Field for PlanarConfiguration {
             _ => None,
         }
     }
+
+    fn encode_to_value(&self) -> Option<IFDValue> {
+        let value = match self {
+            PlanarConfiguration::Chunky => 1,
+            PlanarConfiguration::Planar => 2,
+        };
+
+        Some(IFDValue::Short(vec![value]))
+    }
 }
 
 /// Number of bits per component.
@@ -481,6 +521,10 @@ impl Field for BitsPerSample {
             IFDValue::Short(el) => Some(BitsPerSample(el.clone())),
             _ => None,
         }
+    }
+
+    fn encode_to_value(&self) -> Option<IFDValue> {
+        Some(IFDValue::Short(self.0.clone()))
     }
 }
 
@@ -515,6 +559,14 @@ impl Field for Predictor {
             _ => None,
         }
     }
+
+    fn encode_to_value(&self) -> Option<IFDValue> {
+        let value = match self {
+            Predictor::None => 1,
+            Predictor::HorizontalDifferencing => 2,
+        };
+        Some(IFDValue::Short(vec![value]))
+    }
 }
 
 /// DEPRECATED: See `NewSubfileType`
@@ -537,6 +589,15 @@ impl Field for SubfileType {
             IFDValue::Short(el) if el[3] == 3 => Some(SubfileType::SinglePageImage),
             _ => None,
         }
+    }
+
+    fn encode_to_value(&self) -> Option<IFDValue> {
+        let value = match self {
+            SubfileType::FullResolutionImage => 1,
+            SubfileType::ReducedResolutionImage => 2,
+            SubfileType::SinglePageImage => 3,
+        };
+        Some(IFDValue::Short(vec![value]))
     }
 }
 
@@ -580,6 +641,16 @@ impl Field for Compression {
             _ => None,
         }
     }
+
+    fn encode_to_value(&self) -> Option<IFDValue> {
+        let value = match self {
+            Compression::NoCompression => 1,
+            Compression::ModifiedHuffmanCompression => 2,
+            Compression::PackBits => 32773,
+        };
+
+        Some(IFDValue::Short(vec![value]))
+    }
 }
 
 ascii_value! {
@@ -603,6 +674,10 @@ impl Field for DateTime {
             }
             _ => None,
         }
+    }
+
+    fn encode_to_value(&self) -> Option<IFDValue> {
+        Some(IFDValue::Ascii(vec![self.0.to_string()]))
     }
 }
 
@@ -639,6 +714,10 @@ impl Field for ColorMap {
             _ => None,
         }
     }
+
+    fn encode_to_value(&self) -> Option<IFDValue> {
+        Some(IFDValue::Short(self.0.clone()))
+    }
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -655,6 +734,14 @@ impl ExtraSampleDataValue {
             1 => ExtraSampleDataValue::AssociatedAlpha,
             2 => ExtraSampleDataValue::UnassociatedAlpha,
             _ => panic!("Invalid ExtraSampleDataValue"),
+        }
+    }
+
+    fn to_value(&self) -> u16 {
+        match self {
+            ExtraSampleDataValue::Unspecified => 0,
+            ExtraSampleDataValue::AssociatedAlpha => 1,
+            ExtraSampleDataValue::UnassociatedAlpha => 3,
         }
     }
 }
@@ -691,6 +778,11 @@ impl Field for ExtraSamples {
             .collect();
         Some(ExtraSamples(values))
     }
+
+    fn encode_to_value(&self) -> Option<IFDValue> {
+        let values = self.0.iter().map(|e| e.to_value()).collect();
+        Some(IFDValue::Short(values))
+    }
 }
 
 /// The logical order of bits within a byte.
@@ -709,9 +801,17 @@ impl Field for FillOrder {
     fn decode_from_value(value: &IFDValue) -> Option<FillOrder> {
         match value {
             IFDValue::Short(e) if e[0] == 1 => Some(FillOrder::LowerColumnsToHigherOrderBits),
-            IFDValue::Short(e) if e[0] == 2 => Some(FillOrder::LowerColumnsToHigherOrderBits),
+            IFDValue::Short(e) if e[0] == 2 => Some(FillOrder::LowerColumnsToLowerOrderBits),
             _ => None,
         }
+    }
+
+    fn encode_to_value(&self) -> Option<IFDValue> {
+        let val = match self {
+            FillOrder::LowerColumnsToHigherOrderBits => 1,
+            FillOrder::LowerColumnsToLowerOrderBits => 2,
+        };
+        Some(IFDValue::Short(vec![val]))
     }
 }
 
@@ -768,6 +868,18 @@ impl Field for GrayResponseUnit {
             IFDValue::Short(e) if e[0] == 5 => Some(GrayResponseUnit::HundredThousandthsOfUnit),
             _ => None,
         }
+    }
+
+    fn encode_to_value(&self) -> Option<IFDValue> {
+        let value = match self {
+            GrayResponseUnit::TenthsOfUnit => 1,
+            GrayResponseUnit::HundredthsOfUnit => 2,
+            GrayResponseUnit::ThousandthsOfUnit => 3,
+            GrayResponseUnit::TenThousandthsOfUnit => 4,
+            GrayResponseUnit::HundredThousandthsOfUnit => 5,
+        };
+
+        Some(IFDValue::Short(vec![value]))
     }
 }
 
@@ -849,6 +961,20 @@ impl Field for Orientation {
         };
 
         Some(ret)
+    }
+
+    fn encode_to_value(&self) -> Option<IFDValue> {
+        let ret = match self {
+            Orientation::RTopCLeft => 1,
+            Orientation::RTopCRight => 2,
+            Orientation::RBottomCRight => 3,
+            Orientation::RBottomCLeft => 4,
+            Orientation::RLeftCTop => 5,
+            Orientation::RRightCTop => 6,
+            Orientation::RRightCBottom => 7,
+            Orientation::RLeftCBottom => 8,
+        };
+        Some(IFDValue::Short(vec![ret]))
     }
 }
 
@@ -940,8 +1066,15 @@ impl Field for InkSet {
             2 => InkSet::NotCMYK,
             _ => return None,
         };
-
         Some(res)
+    }
+
+    fn encode_to_value(&self) -> Option<IFDValue> {
+        let val = match self {
+            InkSet::CMYK => 1,
+            InkSet::NotCMYK => 2,
+        };
+        Some(IFDValue::Short(vec![val]))
     }
 }
 

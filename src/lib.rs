@@ -9,10 +9,10 @@ extern crate chrono;
 extern crate error_chain;
 
 mod endian;
-mod ifd;
-mod tiff;
+mod reader;
+mod value;
 
 pub use endian::{BE, LE};
 
 pub mod tag;
-pub use tiff::TIFF;
+pub use reader::TIFFReader;

@@ -1,11 +1,110 @@
-use endian::Endian;
-use ifd::{IFDIterator, IFDValue, IFD};
-use std::io::{Read, Seek};
+use endian::{Endian, EndianReader};
+use std::io::{Read, Seek, SeekFrom};
+
+use std::collections::hash_map::Keys;
+use std::collections::HashMap;
+
 use std::iter::Iterator;
 
-use tag::Field;
+use tag::{Field, Tag};
+use value::TIFFValue;
 const TIFF_LE: u16 = 0x4949;
 const TIFF_BE: u16 = 0x4D4D;
+
+/// An `IFDEntry` represents an **image file directory**
+/// mentionned inside the tiff specification. This is the base
+#[derive(Debug)]
+pub struct IFDEntry {
+    pub tag: Tag,
+    pub value_type: u16,
+    pub count: u32,
+    pub value_offset: u32,
+}
+
+#[derive(Debug)]
+pub struct IFD {
+    entries: HashMap<Tag, IFDEntry>,
+}
+
+impl<'a> IFD {
+    pub fn get_entry_from_tag(&self, tag: Tag) -> Option<&IFDEntry> {
+        self.entries.get(&tag)
+    }
+
+    pub fn all_tags(&self) -> Keys<Tag, IFDEntry> {
+        self.entries.keys()
+    }
+}
+
+pub struct IFDIterator<'a, R: Read + Seek + 'a> {
+    reader: EndianReader<'a, R>,
+    next_entry: usize,
+    position: usize,
+}
+
+impl<'a, R: Read + Seek> IFDIterator<'a, R>
+where
+    R: 'a,
+{
+    pub fn new(reader: &'a mut R, first_ifd_offset: usize, endian: Endian) -> IFDIterator<R> {
+        reader.seek(SeekFrom::Start(0)).ok();
+
+        IFDIterator {
+            reader: EndianReader::new(reader, endian),
+            next_entry: first_ifd_offset,
+            position: 0,
+        }
+    }
+}
+
+impl<'a, R: Read + Seek> Iterator for IFDIterator<'a, R> {
+    type Item = IFD;
+
+    fn next(&mut self) -> Option<IFD> {
+        // Go to next entry
+        let next = if self.position == 0 {
+            SeekFrom::Start(self.next_entry as u64)
+        } else {
+            SeekFrom::Current(self.next_entry as i64)
+        };
+
+        self.position = self.reader.seek(next).ok()? as usize;
+
+        // Read Count
+        let entry_count: u16 = self.reader.read_short().ok()?;
+        if entry_count < 1 {
+            return None;
+        }
+
+        let mut map = HashMap::<Tag, IFDEntry>::new();
+        for _i in 0..entry_count {
+            // Tag
+            let tag: u16 = self.reader.read_short().ok()?;
+
+            // Type
+            let value_type_raw: u16 = self.reader.read_short().ok()?;
+
+            // Count
+            let count: u32 = self.reader.read_long().ok()?;
+            let value_offset: u32 = self.reader.read_long().ok()?;
+
+            let tag_value = Tag::from(tag);
+            let entry = IFDEntry {
+                tag: tag_value,
+                value_type: value_type_raw,
+                count: count,
+                value_offset: value_offset,
+            };
+
+            map.insert(tag_value, entry);
+        }
+
+        let next: u32 = self.reader.read_long().ok()?;
+        self.next_entry = next as usize;
+
+        Some(IFD { entries: map })
+    }
+}
 
 error_chain!{
       foreign_links {
@@ -16,21 +115,20 @@ error_chain!{
             description("Invalid TIFF file"),
             display("INvalid TIFF File: {}", v),
         }
-
         DirectoryIndexOutOfBounds
     }
 }
 
-pub struct TIFF<R> {
+pub struct TIFFReader<R> {
     inner: R,
     ifds: Vec<IFD>,
     endian: Endian,
     current_directory_index: usize,
 }
 
-impl<R: Read + Seek> TIFF<R> {
+impl<R: Read + Seek> TIFFReader<R> {
     /// Creates a new TIFF reader from the input `Read` type.
-    pub fn new(mut reader: R) -> Result<TIFF<R>> {
+    pub fn new(mut reader: R) -> Result<TIFFReader<R>> {
         // Check order raw validation
         let mut order_bytes = [0, 0];
         reader.read_exact(&mut order_bytes)?;
@@ -71,7 +169,7 @@ impl<R: Read + Seek> TIFF<R> {
                 ErrorKind::InvalidTIFFFile("TIFF file should have one least one directory").into(),
             );
         } else {
-            Ok(TIFF {
+            Ok(TIFFReader {
                 inner: reader,
                 ifds: ifds,
                 endian: order,
@@ -91,7 +189,7 @@ impl<R: Read + Seek> TIFF<R> {
 
         let tag = T::tag();
         let ifd_entry = self.ifds[self.current_directory_index].get_entry_from_tag(tag)?;
-        let value = IFDValue::new_from_entry(&mut self.inner, ifd_entry, self.endian).ok()?;
+        let value = TIFFValue::new_from_entry(&mut self.inner, ifd_entry, self.endian).ok()?;
         T::decode_from_value(&value)
     }
 
@@ -116,9 +214,9 @@ mod tests {
 
     use super::*;
     use endian::Endian;
-    use ifd::Rational;
     use std::io::Cursor;
     use tag::*;
+    use value::Rational;
 
     macro_rules! ensure_field {
         ($read:expr, $type:ty) => {
@@ -131,7 +229,7 @@ mod tests {
     fn test_sample_be() {
         let bytes: &[u8] = include_bytes!("../samples/arbitro_be.tiff");
         let mut cursor = Cursor::new(bytes);
-        let mut read = TIFF::new(&mut cursor).unwrap();
+        let mut read = TIFFReader::new(&mut cursor).unwrap();
         // println!("IFD {:?}", read.ifds());
         assert_eq!(read.endianness(), Endian::Big);
 
@@ -163,7 +261,7 @@ mod tests {
     fn test_sample_le() {
         let bytes: &[u8] = include_bytes!("../samples/picoawards_le.tiff");
         let mut cursor = Cursor::new(bytes);
-        let mut read = TIFF::new(&mut cursor).unwrap();
+        let mut read = TIFFReader::new(&mut cursor).unwrap();
         // println!("IFD {:?}", read.ifds());
         assert_eq!(read.endianness(), Endian::Little);
 
@@ -213,7 +311,7 @@ mod tests {
     fn test_sample_other() {
         let bytes: &[u8] = include_bytes!("../samples/ycbcr-cat.tif");
         let mut cursor = Cursor::new(bytes);
-        let mut read = TIFF::new(&mut cursor).unwrap();
+        let mut read = TIFFReader::new(&mut cursor).unwrap();
         // println!("IFD {:?}", read.ifds());
         assert_eq!(read.endianness(), Endian::Big);
 

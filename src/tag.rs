@@ -1,4 +1,4 @@
-use ifd::{IFDValue, Rational};
+use value::{Rational, TIFFValue};
 
 use chrono;
 use std::convert::From;
@@ -133,10 +133,10 @@ pub trait Field: Sized {
     /// The `Tag` corresponding to this value
     fn tag() -> Tag;
 
-    /// A function creating `Self` from one `IFDValue`
-    fn decode_from_value(value: &IFDValue) -> Option<Self>;
+    /// A function creating `Self` from one `TIFFValue`
+    fn decode_from_value(value: &TIFFValue) -> Option<Self>;
 
-    fn encode_to_value(&self) -> Option<IFDValue>;
+    fn encode_to_value(&self) -> Option<TIFFValue>;
 }
 
 macro_rules! ascii_value {
@@ -150,15 +150,15 @@ macro_rules! ascii_value {
                 $tag
             }
 
-            fn decode_from_value(value: &IFDValue) -> Option<$type> {
+            fn decode_from_value(value: &TIFFValue) -> Option<$type> {
                 match value {
-                    IFDValue::Ascii(el) => Some($type(el[0].clone())),
+                    TIFFValue::Ascii(el) => Some($type(el[0].clone())),
                     _ => None,
                 }
             }
 
-            fn encode_to_value(&self) -> Option<IFDValue> {
-                Some(IFDValue::Ascii(vec![self.0.clone()]))
+            fn encode_to_value(&self) -> Option<TIFFValue> {
+                Some(TIFFValue::Ascii(vec![self.0.clone()]))
             }
         }
     };
@@ -175,19 +175,19 @@ macro_rules! short_long_value {
                 $tag
             }
 
-            fn decode_from_value(value: &IFDValue) -> Option<$type> {
+            fn decode_from_value(value: &TIFFValue) -> Option<$type> {
                 match value {
-                    IFDValue::Short(el) => Some($type(el[0] as u32)),
-                    IFDValue::Long(el) => Some($type(el[0])),
+                    TIFFValue::Short(el) => Some($type(el[0] as u32)),
+                    TIFFValue::Long(el) => Some($type(el[0])),
                     _ => None,
                 }
             }
 
-            fn encode_to_value(&self) -> Option<IFDValue> {
+            fn encode_to_value(&self) -> Option<TIFFValue> {
                 if self.0 <= ::std::u16::MAX as u32 {
-                    Some(IFDValue::Short(vec![self.0 as u16]))
+                    Some(TIFFValue::Short(vec![self.0 as u16]))
                 } else {
-                    Some(IFDValue::Long(vec![self.0]))
+                    Some(TIFFValue::Long(vec![self.0]))
                 }
 
             }
@@ -206,15 +206,15 @@ macro_rules! short_value {
                 $tag
             }
 
-            fn decode_from_value(value: &IFDValue) -> Option<$type> {
+            fn decode_from_value(value: &TIFFValue) -> Option<$type> {
                 match value {
-                    IFDValue::Short(el) => Some($type(el[0] as u16)),
+                    TIFFValue::Short(el) => Some($type(el[0] as u16)),
                     _ => None,
                 }
             }
 
-             fn encode_to_value(&self) -> Option<IFDValue> {
-                 Some(IFDValue::Short(vec![self.0]))
+             fn encode_to_value(&self) -> Option<TIFFValue> {
+                 Some(TIFFValue::Short(vec![self.0]))
              }
         }
     };
@@ -231,15 +231,15 @@ macro_rules! long_value {
                 $tag
             }
 
-            fn decode_from_value(value: &IFDValue) -> Option<$type> {
+            fn decode_from_value(value: &TIFFValue) -> Option<$type> {
                 match value {
-                    IFDValue::Long(el) => Some($type(el[0])),
+                    TIFFValue::Long(el) => Some($type(el[0])),
                     _ => None,
                 }
             }
 
-             fn encode_to_value(&self) -> Option<IFDValue> {
-                 Some(IFDValue::Long(vec![self.0]))
+             fn encode_to_value(&self) -> Option<TIFFValue> {
+                 Some(TIFFValue::Long(vec![self.0]))
              }
         }
     };
@@ -256,15 +256,15 @@ macro_rules! vec_short_u_value {
                 $tag
             }
 
-            fn decode_from_value(value: &IFDValue) -> Option<$type> {
+            fn decode_from_value(value: &TIFFValue) -> Option<$type> {
                 match value {
-                    IFDValue::Short(el) => Some($type(el.clone())),
+                    TIFFValue::Short(el) => Some($type(el.clone())),
                     _ => None,
                 }
             }
 
-            fn encode_to_value(&self) -> Option<IFDValue> {
-                 Some(IFDValue::Short(self.0.clone()))
+            fn encode_to_value(&self) -> Option<TIFFValue> {
+                 Some(TIFFValue::Short(self.0.clone()))
             }
         }
     };
@@ -280,15 +280,15 @@ macro_rules! rational_value {
                 $tag
             }
 
-            fn decode_from_value(value: &IFDValue) -> Option<$type> {
+            fn decode_from_value(value: &TIFFValue) -> Option<$type> {
                 match value {
-                    IFDValue::Rational(el) => Some($type(el[0])),
+                    TIFFValue::Rational(el) => Some($type(el[0])),
                     _ => None,
                 }
             }
 
-            fn encode_to_value(&self) -> Option<IFDValue> {
-                 Some(IFDValue::Rational(vec![self.0]))
+            fn encode_to_value(&self) -> Option<TIFFValue> {
+                 Some(TIFFValue::Rational(vec![self.0]))
              }
         }
     };
@@ -311,20 +311,20 @@ impl Field for PhotometricInterpretation {
         Tag::PhotometricInterpretation
     }
 
-    fn decode_from_value(value: &IFDValue) -> Option<PhotometricInterpretation> {
+    fn decode_from_value(value: &TIFFValue) -> Option<PhotometricInterpretation> {
         match value {
-            IFDValue::Short(el) if el[0] == 0 => Some(PhotometricInterpretation::WhiteIsZero),
-            IFDValue::Short(el) if el[0] == 1 => Some(PhotometricInterpretation::BlackIsZero),
-            IFDValue::Short(el) if el[0] == 2 => Some(PhotometricInterpretation::RGB),
-            IFDValue::Short(el) if el[0] == 3 => Some(PhotometricInterpretation::PaletteColor),
-            IFDValue::Short(el) if el[0] == 4 => Some(PhotometricInterpretation::TransparencyMask),
-            IFDValue::Short(el) if el[0] == 5 => Some(PhotometricInterpretation::CMYK),
-            IFDValue::Short(el) if el[0] == 6 => Some(PhotometricInterpretation::YCbCr),
+            TIFFValue::Short(el) if el[0] == 0 => Some(PhotometricInterpretation::WhiteIsZero),
+            TIFFValue::Short(el) if el[0] == 1 => Some(PhotometricInterpretation::BlackIsZero),
+            TIFFValue::Short(el) if el[0] == 2 => Some(PhotometricInterpretation::RGB),
+            TIFFValue::Short(el) if el[0] == 3 => Some(PhotometricInterpretation::PaletteColor),
+            TIFFValue::Short(el) if el[0] == 4 => Some(PhotometricInterpretation::TransparencyMask),
+            TIFFValue::Short(el) if el[0] == 5 => Some(PhotometricInterpretation::CMYK),
+            TIFFValue::Short(el) if el[0] == 6 => Some(PhotometricInterpretation::YCbCr),
             _ => None,
         }
     }
 
-    fn encode_to_value(&self) -> Option<IFDValue> {
+    fn encode_to_value(&self) -> Option<TIFFValue> {
         let short_value: u16 = match self {
             PhotometricInterpretation::WhiteIsZero => 0,
             PhotometricInterpretation::BlackIsZero => 1,
@@ -335,7 +335,7 @@ impl Field for PhotometricInterpretation {
             PhotometricInterpretation::YCbCr => 6,
         };
 
-        Some(IFDValue::Short(vec![short_value]))
+        Some(TIFFValue::Short(vec![short_value]))
     }
 }
 
@@ -370,23 +370,23 @@ impl Field for ResolutionUnit {
         Tag::ResolutionUnit
     }
 
-    fn decode_from_value(value: &IFDValue) -> Option<ResolutionUnit> {
+    fn decode_from_value(value: &TIFFValue) -> Option<ResolutionUnit> {
         match value {
-            IFDValue::Short(el) if el[0] == 1 => Some(ResolutionUnit::None),
-            IFDValue::Short(el) if el[0] == 2 => Some(ResolutionUnit::Inch),
-            IFDValue::Short(el) if el[0] == 3 => Some(ResolutionUnit::Centimeter),
+            TIFFValue::Short(el) if el[0] == 1 => Some(ResolutionUnit::None),
+            TIFFValue::Short(el) if el[0] == 2 => Some(ResolutionUnit::Inch),
+            TIFFValue::Short(el) if el[0] == 3 => Some(ResolutionUnit::Centimeter),
             _ => None,
         }
     }
 
-    fn encode_to_value(&self) -> Option<IFDValue> {
+    fn encode_to_value(&self) -> Option<TIFFValue> {
         let raw: u16 = match self {
             ResolutionUnit::None => 1,
             ResolutionUnit::Inch => 2,
             ResolutionUnit::Centimeter => 3,
         };
 
-        Some(IFDValue::Short(vec![raw]))
+        Some(TIFFValue::Short(vec![raw]))
     }
 }
 
@@ -399,15 +399,15 @@ impl Field for StripOffsets {
         Tag::StripOffsets
     }
 
-    fn decode_from_value(value: &IFDValue) -> Option<StripOffsets> {
+    fn decode_from_value(value: &TIFFValue) -> Option<StripOffsets> {
         match value {
-            IFDValue::Short(el) => Some(StripOffsets(el.iter().map(|e| *e as u32).collect())),
-            IFDValue::Long(el) => Some(StripOffsets(el.clone())),
+            TIFFValue::Short(el) => Some(StripOffsets(el.iter().map(|e| *e as u32).collect())),
+            TIFFValue::Long(el) => Some(StripOffsets(el.clone())),
             _ => None,
         }
     }
 
-    fn encode_to_value(&self) -> Option<IFDValue> {
+    fn encode_to_value(&self) -> Option<TIFFValue> {
         let is_big = self
             .0
             .iter()
@@ -417,10 +417,10 @@ impl Field for StripOffsets {
             > 0;
 
         if is_big {
-            Some(IFDValue::Long(self.0.clone()))
+            Some(TIFFValue::Long(self.0.clone()))
         } else {
             let lower = self.0.iter().map(|e| *e as u16).collect();
-            Some(IFDValue::Short(lower))
+            Some(TIFFValue::Short(lower))
         }
     }
 }
@@ -433,15 +433,15 @@ impl Field for StripByteCounts {
     fn tag() -> Tag {
         Tag::StripByteCounts
     }
-    fn decode_from_value(value: &IFDValue) -> Option<StripByteCounts> {
+    fn decode_from_value(value: &TIFFValue) -> Option<StripByteCounts> {
         match value {
-            IFDValue::Short(el) => Some(StripByteCounts(el.iter().map(|e| *e as u32).collect())),
-            IFDValue::Long(el) => Some(StripByteCounts(el.clone())),
+            TIFFValue::Short(el) => Some(StripByteCounts(el.iter().map(|e| *e as u32).collect())),
+            TIFFValue::Long(el) => Some(StripByteCounts(el.clone())),
             _ => None,
         }
     }
 
-    fn encode_to_value(&self) -> Option<IFDValue> {
+    fn encode_to_value(&self) -> Option<TIFFValue> {
         let is_big = self
             .0
             .iter()
@@ -451,10 +451,10 @@ impl Field for StripByteCounts {
             > 0;
 
         if is_big {
-            Some(IFDValue::Long(self.0.clone()))
+            Some(TIFFValue::Long(self.0.clone()))
         } else {
             let lower = self.0.iter().map(|e| *e as u16).collect();
-            Some(IFDValue::Short(lower))
+            Some(TIFFValue::Short(lower))
         }
     }
 }
@@ -489,21 +489,21 @@ impl Field for PlanarConfiguration {
         Tag::PlanarConfiguration
     }
 
-    fn decode_from_value(value: &IFDValue) -> Option<PlanarConfiguration> {
+    fn decode_from_value(value: &TIFFValue) -> Option<PlanarConfiguration> {
         match value {
-            IFDValue::Short(el) if el[0] == 1 => Some(PlanarConfiguration::Chunky),
-            IFDValue::Short(el) if el[0] == 2 => Some(PlanarConfiguration::Planar),
+            TIFFValue::Short(el) if el[0] == 1 => Some(PlanarConfiguration::Chunky),
+            TIFFValue::Short(el) if el[0] == 2 => Some(PlanarConfiguration::Planar),
             _ => None,
         }
     }
 
-    fn encode_to_value(&self) -> Option<IFDValue> {
+    fn encode_to_value(&self) -> Option<TIFFValue> {
         let value = match self {
             PlanarConfiguration::Chunky => 1,
             PlanarConfiguration::Planar => 2,
         };
 
-        Some(IFDValue::Short(vec![value]))
+        Some(TIFFValue::Short(vec![value]))
     }
 }
 
@@ -516,15 +516,15 @@ impl Field for BitsPerSample {
         Tag::BitsPerSample
     }
 
-    fn decode_from_value(value: &IFDValue) -> Option<BitsPerSample> {
+    fn decode_from_value(value: &TIFFValue) -> Option<BitsPerSample> {
         match value {
-            IFDValue::Short(el) => Some(BitsPerSample(el.clone())),
+            TIFFValue::Short(el) => Some(BitsPerSample(el.clone())),
             _ => None,
         }
     }
 
-    fn encode_to_value(&self) -> Option<IFDValue> {
-        Some(IFDValue::Short(self.0.clone()))
+    fn encode_to_value(&self) -> Option<TIFFValue> {
+        Some(TIFFValue::Short(self.0.clone()))
     }
 }
 
@@ -552,20 +552,20 @@ impl Field for Predictor {
         Tag::Predictor
     }
 
-    fn decode_from_value(value: &IFDValue) -> Option<Predictor> {
+    fn decode_from_value(value: &TIFFValue) -> Option<Predictor> {
         match value {
-            IFDValue::Short(el) if el[0] == 1 => Some(Predictor::None),
-            IFDValue::Short(el) if el[0] == 2 => Some(Predictor::HorizontalDifferencing),
+            TIFFValue::Short(el) if el[0] == 1 => Some(Predictor::None),
+            TIFFValue::Short(el) if el[0] == 2 => Some(Predictor::HorizontalDifferencing),
             _ => None,
         }
     }
 
-    fn encode_to_value(&self) -> Option<IFDValue> {
+    fn encode_to_value(&self) -> Option<TIFFValue> {
         let value = match self {
             Predictor::None => 1,
             Predictor::HorizontalDifferencing => 2,
         };
-        Some(IFDValue::Short(vec![value]))
+        Some(TIFFValue::Short(vec![value]))
     }
 }
 
@@ -582,22 +582,22 @@ impl Field for SubfileType {
         Tag::SubfileType
     }
 
-    fn decode_from_value(value: &IFDValue) -> Option<SubfileType> {
+    fn decode_from_value(value: &TIFFValue) -> Option<SubfileType> {
         match value {
-            IFDValue::Short(el) if el[0] == 1 => Some(SubfileType::FullResolutionImage),
-            IFDValue::Short(el) if el[0] == 2 => Some(SubfileType::ReducedResolutionImage),
-            IFDValue::Short(el) if el[3] == 3 => Some(SubfileType::SinglePageImage),
+            TIFFValue::Short(el) if el[0] == 1 => Some(SubfileType::FullResolutionImage),
+            TIFFValue::Short(el) if el[0] == 2 => Some(SubfileType::ReducedResolutionImage),
+            TIFFValue::Short(el) if el[3] == 3 => Some(SubfileType::SinglePageImage),
             _ => None,
         }
     }
 
-    fn encode_to_value(&self) -> Option<IFDValue> {
+    fn encode_to_value(&self) -> Option<TIFFValue> {
         let value = match self {
             SubfileType::FullResolutionImage => 1,
             SubfileType::ReducedResolutionImage => 2,
             SubfileType::SinglePageImage => 3,
         };
-        Some(IFDValue::Short(vec![value]))
+        Some(TIFFValue::Short(vec![value]))
     }
 }
 
@@ -633,23 +633,23 @@ impl Field for Compression {
         Tag::Compression
     }
 
-    fn decode_from_value(value: &IFDValue) -> Option<Compression> {
+    fn decode_from_value(value: &TIFFValue) -> Option<Compression> {
         match value {
-            IFDValue::Short(val) if val[0] == 1 => Some(Compression::NoCompression),
-            IFDValue::Short(val) if val[0] == 2 => Some(Compression::ModifiedHuffmanCompression),
-            IFDValue::Short(val) if val[0] == 32773 => Some(Compression::PackBits),
+            TIFFValue::Short(val) if val[0] == 1 => Some(Compression::NoCompression),
+            TIFFValue::Short(val) if val[0] == 2 => Some(Compression::ModifiedHuffmanCompression),
+            TIFFValue::Short(val) if val[0] == 32773 => Some(Compression::PackBits),
             _ => None,
         }
     }
 
-    fn encode_to_value(&self) -> Option<IFDValue> {
+    fn encode_to_value(&self) -> Option<TIFFValue> {
         let value = match self {
             Compression::NoCompression => 1,
             Compression::ModifiedHuffmanCompression => 2,
             Compression::PackBits => 32773,
         };
 
-        Some(IFDValue::Short(vec![value]))
+        Some(TIFFValue::Short(vec![value]))
     }
 }
 
@@ -666,9 +666,9 @@ impl Field for DateTime {
         Tag::DateTime
     }
 
-    fn decode_from_value(value: &IFDValue) -> Option<DateTime> {
+    fn decode_from_value(value: &TIFFValue) -> Option<DateTime> {
         match value {
-            IFDValue::Ascii(val) => {
+            TIFFValue::Ascii(val) => {
                 let time = chrono::DateTime::parse_from_str(&val[0], "%Y:%m:%d %H:%M:%S").ok()?;
                 Some(DateTime(time))
             }
@@ -676,8 +676,8 @@ impl Field for DateTime {
         }
     }
 
-    fn encode_to_value(&self) -> Option<IFDValue> {
-        Some(IFDValue::Ascii(vec![self.0.to_string()]))
+    fn encode_to_value(&self) -> Option<TIFFValue> {
+        Some(TIFFValue::Ascii(vec![self.0.to_string()]))
     }
 }
 
@@ -708,15 +708,15 @@ impl Field for ColorMap {
         Tag::ColorMap
     }
 
-    fn decode_from_value(value: &IFDValue) -> Option<ColorMap> {
+    fn decode_from_value(value: &TIFFValue) -> Option<ColorMap> {
         match value {
-            IFDValue::Short(e) => Some(ColorMap(e.clone())),
+            TIFFValue::Short(e) => Some(ColorMap(e.clone())),
             _ => None,
         }
     }
 
-    fn encode_to_value(&self) -> Option<IFDValue> {
-        Some(IFDValue::Short(self.0.clone()))
+    fn encode_to_value(&self) -> Option<TIFFValue> {
+        Some(TIFFValue::Short(self.0.clone()))
     }
 }
 
@@ -766,9 +766,9 @@ impl Field for ExtraSamples {
         Tag::ExtraSamples
     }
 
-    fn decode_from_value(value: &IFDValue) -> Option<ExtraSamples> {
+    fn decode_from_value(value: &TIFFValue) -> Option<ExtraSamples> {
         let raw = match value {
-            IFDValue::Short(e) => e,
+            TIFFValue::Short(e) => e,
             _ => return None,
         };
 
@@ -779,9 +779,9 @@ impl Field for ExtraSamples {
         Some(ExtraSamples(values))
     }
 
-    fn encode_to_value(&self) -> Option<IFDValue> {
+    fn encode_to_value(&self) -> Option<TIFFValue> {
         let values = self.0.iter().map(|e| e.to_value()).collect();
-        Some(IFDValue::Short(values))
+        Some(TIFFValue::Short(values))
     }
 }
 
@@ -798,20 +798,20 @@ impl Field for FillOrder {
         Tag::FillOrder
     }
 
-    fn decode_from_value(value: &IFDValue) -> Option<FillOrder> {
+    fn decode_from_value(value: &TIFFValue) -> Option<FillOrder> {
         match value {
-            IFDValue::Short(e) if e[0] == 1 => Some(FillOrder::LowerColumnsToHigherOrderBits),
-            IFDValue::Short(e) if e[0] == 2 => Some(FillOrder::LowerColumnsToLowerOrderBits),
+            TIFFValue::Short(e) if e[0] == 1 => Some(FillOrder::LowerColumnsToHigherOrderBits),
+            TIFFValue::Short(e) if e[0] == 2 => Some(FillOrder::LowerColumnsToLowerOrderBits),
             _ => None,
         }
     }
 
-    fn encode_to_value(&self) -> Option<IFDValue> {
+    fn encode_to_value(&self) -> Option<TIFFValue> {
         let val = match self {
             FillOrder::LowerColumnsToHigherOrderBits => 1,
             FillOrder::LowerColumnsToLowerOrderBits => 2,
         };
-        Some(IFDValue::Short(vec![val]))
+        Some(TIFFValue::Short(vec![val]))
     }
 }
 
@@ -859,18 +859,18 @@ impl Field for GrayResponseUnit {
         Tag::GrayResponseUnit
     }
 
-    fn decode_from_value(value: &IFDValue) -> Option<GrayResponseUnit> {
+    fn decode_from_value(value: &TIFFValue) -> Option<GrayResponseUnit> {
         match value {
-            IFDValue::Short(e) if e[0] == 1 => Some(GrayResponseUnit::TenthsOfUnit),
-            IFDValue::Short(e) if e[0] == 2 => Some(GrayResponseUnit::HundredthsOfUnit),
-            IFDValue::Short(e) if e[0] == 3 => Some(GrayResponseUnit::ThousandthsOfUnit),
-            IFDValue::Short(e) if e[0] == 4 => Some(GrayResponseUnit::TenThousandthsOfUnit),
-            IFDValue::Short(e) if e[0] == 5 => Some(GrayResponseUnit::HundredThousandthsOfUnit),
+            TIFFValue::Short(e) if e[0] == 1 => Some(GrayResponseUnit::TenthsOfUnit),
+            TIFFValue::Short(e) if e[0] == 2 => Some(GrayResponseUnit::HundredthsOfUnit),
+            TIFFValue::Short(e) if e[0] == 3 => Some(GrayResponseUnit::ThousandthsOfUnit),
+            TIFFValue::Short(e) if e[0] == 4 => Some(GrayResponseUnit::TenThousandthsOfUnit),
+            TIFFValue::Short(e) if e[0] == 5 => Some(GrayResponseUnit::HundredThousandthsOfUnit),
             _ => None,
         }
     }
 
-    fn encode_to_value(&self) -> Option<IFDValue> {
+    fn encode_to_value(&self) -> Option<TIFFValue> {
         let value = match self {
             GrayResponseUnit::TenthsOfUnit => 1,
             GrayResponseUnit::HundredthsOfUnit => 2,
@@ -879,7 +879,7 @@ impl Field for GrayResponseUnit {
             GrayResponseUnit::HundredThousandthsOfUnit => 5,
         };
 
-        Some(IFDValue::Short(vec![value]))
+        Some(TIFFValue::Short(vec![value]))
     }
 }
 
@@ -942,9 +942,9 @@ impl Field for Orientation {
         Tag::Orientation
     }
 
-    fn decode_from_value(value: &IFDValue) -> Option<Orientation> {
+    fn decode_from_value(value: &TIFFValue) -> Option<Orientation> {
         let val = match value {
-            IFDValue::Short(v) => v[0],
+            TIFFValue::Short(v) => v[0],
             _ => return None,
         };
 
@@ -963,7 +963,7 @@ impl Field for Orientation {
         Some(ret)
     }
 
-    fn encode_to_value(&self) -> Option<IFDValue> {
+    fn encode_to_value(&self) -> Option<TIFFValue> {
         let ret = match self {
             Orientation::RTopCLeft => 1,
             Orientation::RTopCRight => 2,
@@ -974,7 +974,7 @@ impl Field for Orientation {
             Orientation::RRightCBottom => 7,
             Orientation::RLeftCBottom => 8,
         };
-        Some(IFDValue::Short(vec![ret]))
+        Some(TIFFValue::Short(vec![ret]))
     }
 }
 
@@ -1055,9 +1055,9 @@ impl Field for InkSet {
         Tag::InkSet
     }
 
-    fn decode_from_value(value: &IFDValue) -> Option<InkSet> {
+    fn decode_from_value(value: &TIFFValue) -> Option<InkSet> {
         let val = match value {
-            IFDValue::Short(val) => val[0],
+            TIFFValue::Short(val) => val[0],
             _ => return None,
         };
 
@@ -1069,12 +1069,12 @@ impl Field for InkSet {
         Some(res)
     }
 
-    fn encode_to_value(&self) -> Option<IFDValue> {
+    fn encode_to_value(&self) -> Option<TIFFValue> {
         let val = match self {
             InkSet::CMYK => 1,
             InkSet::NotCMYK => 2,
         };
-        Some(IFDValue::Short(vec![val]))
+        Some(TIFFValue::Short(vec![val]))
     }
 }
 

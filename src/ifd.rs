@@ -1,4 +1,5 @@
 use endian::{Endian, EndianReader, Long, LongLong, Short};
+use std::collections::hash_map::Keys;
 use std::collections::HashMap;
 use std::convert::From;
 use std::io::{Error, ErrorKind, Read, Result, Seek, SeekFrom};
@@ -93,6 +94,23 @@ impl IFDValue {
                 let bytes = IFDValue::read_n_bytes(reader, entry, entry.count as usize)?;
                 Ok(IFDValue::Undefined(bytes))
             }
+        }
+    }
+
+    fn value_type_id(&self) -> u16 {
+        match self {
+            IFDValue::Byte(_) => 1,
+            IFDValue::Ascii(_) => 2,
+            IFDValue::Short(_) => 3,
+            IFDValue::Long(_) => 4,
+            IFDValue::Rational(_) => 5,
+            IFDValue::SByte(_) => 6,
+            IFDValue::Undefined(_) => 7,
+            IFDValue::SShort(_) => 8,
+            IFDValue::SLong(_) => 9,
+            IFDValue::SRational(_) => 10,
+            IFDValue::Float(_) => 11,
+            IFDValue::Double(_) => 12,
         }
     }
 
@@ -230,18 +248,21 @@ pub struct IFDEntry {
 #[derive(Debug)]
 pub struct IFD {
     entries: HashMap<Tag, IFDEntry>,
-    next: usize,
 }
 
-impl IFD {
+impl<'a> IFD {
     pub fn get_entry_from_tag(&self, tag: Tag) -> Option<&IFDEntry> {
         self.entries.get(&tag)
+    }
+
+    pub fn all_tags(&self) -> Keys<Tag, IFDEntry> {
+        self.entries.keys()
     }
 }
 
 pub struct IFDIterator<'a, R: Read + Seek + 'a> {
     reader: EndianReader<'a, R>,
-    first_entry: usize,
+    next_entry: usize,
     position: usize,
 }
 
@@ -254,7 +275,7 @@ where
 
         IFDIterator {
             reader: EndianReader::new(reader, endian),
-            first_entry: first_ifd_offset,
+            next_entry: first_ifd_offset,
             position: 0,
         }
     }
@@ -266,9 +287,9 @@ impl<'a, R: Read + Seek> Iterator for IFDIterator<'a, R> {
     fn next(&mut self) -> Option<IFD> {
         // Go to next entry
         let next = if self.position == 0 {
-            SeekFrom::Start(self.first_entry as u64)
+            SeekFrom::Start(self.next_entry as u64)
         } else {
-            SeekFrom::Current(self.position as i64)
+            SeekFrom::Current(self.next_entry as i64)
         };
 
         self.position = self.reader.seek(next).ok()? as usize;
@@ -303,10 +324,8 @@ impl<'a, R: Read + Seek> Iterator for IFDIterator<'a, R> {
         }
 
         let next: u32 = self.reader.read_long().ok()?;
+        self.next_entry = next as usize;
 
-        Some(IFD {
-            entries: map,
-            next: next as usize,
-        })
+        Some(IFD { entries: map })
     }
 }

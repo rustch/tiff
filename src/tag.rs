@@ -3,13 +3,12 @@ use value::{Rational, TIFFValue};
 use chrono;
 use std::convert::From;
 use std::fmt::{Display, Error, Formatter};
-use std::hash::{Hash, Hasher};
 
 macro_rules! tags_id_definition {
     {$(
         $name:ident | $value:expr => $desc:expr,
     )*} => {
-        #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+        #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
         pub enum Tag {
             $($name,)*
             Unknown(u16)
@@ -34,21 +33,6 @@ macro_rules! tags_id_definition {
               }
           }
       }
-
-          impl Hash for Tag {
-          fn hash<H: Hasher>(&self, state: &mut H) {
-              match self {
-                  $( Tag::$name => {
-                      $value.hash(state);
-                  })*
-                  Tag::Unknown(val) => {
-                      0xFFFF.hash(state);
-                      val.hash(state);
-
-                  }
-              }
-          }
-    }
     }
 }
 
@@ -177,14 +161,14 @@ macro_rules! short_long_value {
 
             fn decode_from_value(value: &TIFFValue) -> Option<$type> {
                 match value {
-                    TIFFValue::Short(el) => Some($type(el[0] as u32)),
+                    TIFFValue::Short(el) => Some($type(u32::from(el[0]))),
                     TIFFValue::Long(el) => Some($type(el[0])),
                     _ => None,
                 }
             }
 
             fn encode_to_value(&self) -> Option<TIFFValue> {
-                if self.0 <= ::std::u16::MAX as u32 {
+                if self.0 <= u32::from(::std::u16::MAX) {
                     Some(TIFFValue::Short(vec![self.0 as u16]))
                 } else {
                     Some(TIFFValue::Long(vec![self.0]))
@@ -401,20 +385,19 @@ impl Field for StripOffsets {
 
     fn decode_from_value(value: &TIFFValue) -> Option<StripOffsets> {
         match value {
-            TIFFValue::Short(el) => Some(StripOffsets(el.iter().map(|e| *e as u32).collect())),
+            TIFFValue::Short(el) => Some(StripOffsets(el.iter().map(|e| u32::from(*e)).collect())),
             TIFFValue::Long(el) => Some(StripOffsets(el.clone())),
             _ => None,
         }
     }
 
     fn encode_to_value(&self) -> Option<TIFFValue> {
-        let is_big = self
+        let is_big = !self
             .0
             .iter()
-            .filter(|x| **x > (::std::u16::MAX as u32))
+            .filter(|x| **x > u32::from(::std::u16::MAX))
             .collect::<Vec<&u32>>()
-            .len()
-            > 0;
+            .is_empty();
 
         if is_big {
             Some(TIFFValue::Long(self.0.clone()))
@@ -435,20 +418,21 @@ impl Field for StripByteCounts {
     }
     fn decode_from_value(value: &TIFFValue) -> Option<StripByteCounts> {
         match value {
-            TIFFValue::Short(el) => Some(StripByteCounts(el.iter().map(|e| *e as u32).collect())),
+            TIFFValue::Short(el) => {
+                Some(StripByteCounts(el.iter().map(|e| u32::from(*e)).collect()))
+            }
             TIFFValue::Long(el) => Some(StripByteCounts(el.clone())),
             _ => None,
         }
     }
 
     fn encode_to_value(&self) -> Option<TIFFValue> {
-        let is_big = self
+        let is_big = !self
             .0
             .iter()
-            .filter(|x| **x > (::std::u16::MAX as u32))
+            .filter(|x| **x > u32::from(::std::u16::MAX))
             .collect::<Vec<&u32>>()
-            .len()
-            > 0;
+            .is_empty();
 
         if is_big {
             Some(TIFFValue::Long(self.0.clone()))
@@ -737,7 +721,7 @@ impl ExtraSampleDataValue {
         }
     }
 
-    fn to_value(&self) -> u16 {
+    fn to_value(self) -> u16 {
         match self {
             ExtraSampleDataValue::Unspecified => 0,
             ExtraSampleDataValue::AssociatedAlpha => 1,

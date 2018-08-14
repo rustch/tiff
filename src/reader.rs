@@ -1,4 +1,4 @@
-use endian::{Endian, EndianReader};
+use endian::{Endian, EndianReader, Long, LongLong, Short};
 use std::io::{Read, Seek, SeekFrom};
 
 use std::collections::hash_map::Keys;
@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::iter::Iterator;
 
 use tag::{Field, Tag};
-use value::TIFFValue;
+use value::{Rational, TIFFValue};
 const TIFF_LE: u16 = 0x4949;
 const TIFF_BE: u16 = 0x4D4D;
 
@@ -92,8 +92,8 @@ impl<'a, R: Read + Seek> Iterator for IFDIterator<'a, R> {
             let entry = IFDEntry {
                 tag: tag_value,
                 value_type: value_type_raw,
-                count: count,
-                value_offset: value_offset,
+                count,
+                value_offset,
             };
 
             map.insert(tag_value, entry);
@@ -108,7 +108,8 @@ impl<'a, R: Read + Seek> Iterator for IFDIterator<'a, R> {
 
 error_chain!{
       foreign_links {
-        Io(::std::io::Error) ;
+        Io(::std::io::Error);
+        AsciiFormat(::std::string::FromUtf8Error);
     }
     errors {
         InvalidTIFFFile(v: &'static str) {
@@ -116,6 +117,210 @@ error_chain!{
             display("INvalid TIFF File: {}", v),
         }
         DirectoryIndexOutOfBounds
+    }
+}
+
+impl TIFFValue {
+    pub fn new_from_entry<R: Read + Seek>(
+        reader: &mut R,
+        entry: &IFDEntry,
+        endian: Endian,
+    ) -> Result<TIFFValue> {
+        match entry.value_type {
+            1 => {
+                let bytes = TIFFValue::read_n_bytes(reader, entry, entry.count as usize)?;
+                Ok(TIFFValue::Byte(bytes))
+            }
+
+            2 => {
+                let values = TIFFValue::read_ascii(reader, entry)?;
+                Ok(TIFFValue::Ascii(values))
+            }
+
+            3 => {
+                let values = TIFFValue::read_short(reader, entry, endian)?;
+                Ok(TIFFValue::Short(values))
+            }
+
+            4 => {
+                let values = TIFFValue::read_long(reader, entry, endian)?;
+                Ok(TIFFValue::Long(values))
+            }
+
+            5 => {
+                let values = TIFFValue::read_rational(reader, entry, endian)?;
+                Ok(TIFFValue::Rational(values))
+            }
+
+            6 => {
+                let mut bytes = TIFFValue::read_n_bytes(reader, entry, entry.count as usize)?;
+                let result = bytes.iter().map(|i| *i as i8).collect();
+                Ok(TIFFValue::SByte(result))
+            }
+
+            8 => {
+                let values = TIFFValue::read_short(reader, entry, endian)?;
+                Ok(TIFFValue::SShort(values))
+            }
+
+            9 => {
+                let values = TIFFValue::read_long(reader, entry, endian)?;
+                Ok(TIFFValue::SLong(values))
+            }
+            10 => {
+                let values = TIFFValue::read_rational(reader, entry, endian)?;
+                Ok(TIFFValue::SRational(values))
+            }
+            11 => {
+                let values: Vec<u32> = TIFFValue::read_long(reader, entry, endian)?;
+                let result = values.iter().map(|i| f32::from_bits(*i)).collect();
+                Ok(TIFFValue::Float(result))
+            }
+            12 => {
+                let values: Vec<u64> = TIFFValue::read_long_long(reader, entry, endian)?;
+                let result = values.iter().map(|i| f64::from_bits(*i)).collect();
+                Ok(TIFFValue::Double(result))
+            }
+            _ => {
+                let bytes = TIFFValue::read_n_bytes(reader, entry, entry.count as usize)?;
+                Ok(TIFFValue::Undefined(bytes))
+            }
+        }
+    }
+
+    fn value_type_id(&self) -> u16 {
+        match self {
+            TIFFValue::Byte(_) => 1,
+            TIFFValue::Ascii(_) => 2,
+            TIFFValue::Short(_) => 3,
+            TIFFValue::Long(_) => 4,
+            TIFFValue::Rational(_) => 5,
+            TIFFValue::SByte(_) => 6,
+            TIFFValue::Undefined(_) => 7,
+            TIFFValue::SShort(_) => 8,
+            TIFFValue::SLong(_) => 9,
+            TIFFValue::SRational(_) => 10,
+            TIFFValue::Float(_) => 11,
+            TIFFValue::Double(_) => 12,
+        }
+    }
+
+    fn read_n_bytes<R: Read + Seek>(
+        reader: &mut R,
+        entry: &IFDEntry,
+        size: usize,
+    ) -> Result<Vec<u8>> {
+        if size <= 4 {
+            let bytes = &entry.value_offset.to_bytes();
+            Ok(bytes.to_vec())
+        } else {
+            reader.seek(SeekFrom::Start(u64::from(entry.value_offset)))?;
+            let mut vec: Vec<u8> = vec![0; size];
+            reader.read_exact(&mut vec)?;
+            Ok(vec)
+        }
+    }
+
+    fn read_ascii<R: Read + Seek>(reader: &mut R, entry: &IFDEntry) -> Result<Vec<String>> {
+        let bytes = TIFFValue::read_n_bytes(reader, entry, entry.count as usize)?;
+
+        // Splits by null cahracter
+        bytes
+            .split(|e| *e == b'0')
+            .map(|a| String::from_utf8(a.to_vec()).map_err(|e| ErrorKind::AsciiFormat(e).into()))
+            .collect()
+    }
+
+    fn read_short<R: Read + Seek, T: Short>(
+        reader: &mut R,
+        entry: &IFDEntry,
+        endian: Endian,
+    ) -> Result<Vec<T>> {
+        let mut conv_buff: [u8; 2] = [0; 2];
+        let size = entry.count * 2;
+        let mut bytes = TIFFValue::read_n_bytes(reader, entry, size as usize)?;
+
+        if endian == Endian::Big && size <= 4 {
+            bytes.reverse()
+        }
+
+        let elements: Vec<T> = bytes
+            .chunks(2)
+            .map(|e| {
+                conv_buff.copy_from_slice(e);
+
+                endian.short_from_bytes::<T>(conv_buff)
+            }).collect();
+
+        Ok(elements)
+    }
+
+    fn read_long<R: Read + Seek, T: Long>(
+        reader: &mut R,
+        entry: &IFDEntry,
+        endian: Endian,
+    ) -> Result<Vec<T>> {
+        let mut conv_buff: [u8; 4] = [0; 4];
+        let size = entry.count * 4;
+        let mut bytes = TIFFValue::read_n_bytes(reader, entry, size as usize)?;
+
+        if endian == Endian::Big && size <= 4 {
+            bytes.reverse()
+        }
+
+        let elements: Vec<T> = bytes
+            .chunks(4)
+            .map(|e| {
+                conv_buff.copy_from_slice(e);
+                endian.long_from_bytes::<T>(conv_buff)
+            }).collect();
+        Ok(elements)
+    }
+
+    fn read_long_long<R: Read + Seek, T: LongLong>(
+        reader: &mut R,
+        entry: &IFDEntry,
+        endian: Endian,
+    ) -> Result<Vec<T>> {
+        let mut conv_buff: [u8; 8] = [0; 8];
+        let size = entry.count * 8;
+        let mut bytes = TIFFValue::read_n_bytes(reader, entry, size as usize)?;
+
+        if endian == Endian::Big && size <= 8 {
+            bytes.reverse()
+        }
+
+        let elements: Vec<T> = bytes
+            .chunks(8)
+            .map(|e| {
+                conv_buff.copy_from_slice(e);
+                endian.longlong_from_bytes::<T>(conv_buff)
+            }).collect();
+        Ok(elements)
+    }
+
+    fn read_rational<R: Read + Seek, T: Long>(
+        reader: &mut R,
+        entry: &IFDEntry,
+        endian: Endian,
+    ) -> Result<Vec<Rational<T>>> {
+        let size = entry.count * 8;
+        let mut conv_buff: [u8; 4] = [0; 4];
+        let bytes = TIFFValue::read_n_bytes(reader, entry, size as usize)?;
+
+        let elements: Vec<T> = bytes
+            .chunks(4)
+            .map(|e| {
+                conv_buff.copy_from_slice(e);
+                endian.long_from_bytes::<T>(conv_buff)
+            }).collect();
+
+        Ok(elements
+            .chunks(2)
+            .map(|e| Rational {
+                num: e[0],
+                denom: e[1],
+            }).collect())
     }
 }
 
@@ -164,14 +369,12 @@ impl<R: Read + Seek> TIFFReader<R> {
         };
 
         let ifds: Vec<IFD> = IFDIterator::new(&mut reader, offset as usize, order).collect();
-        if ifds.len() < 1 {
-            return Err(
-                ErrorKind::InvalidTIFFFile("TIFF file should have one least one directory").into(),
-            );
+        if ifds.is_empty() {
+            Err(ErrorKind::InvalidTIFFFile("TIFF file should have one least one directory").into())
         } else {
             Ok(TIFFReader {
                 inner: reader,
-                ifds: ifds,
+                ifds,
                 endian: order,
                 current_directory_index: 0,
             })

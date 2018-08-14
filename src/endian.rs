@@ -82,21 +82,21 @@ impl LongLong for i64 {
 }
 
 impl Endian {
-    pub fn short_from_bytes<T: Short>(&self, bytes: [u8; 2]) -> T {
+    pub fn short_from_bytes<T: Short>(self, bytes: [u8; 2]) -> T {
         match self {
             Endian::Big => T::from_bytes_be(bytes),
             Endian::Little => T::from_bytes_le(bytes),
         }
     }
 
-    pub fn long_from_bytes<T: Long>(&self, bytes: [u8; 4]) -> T {
+    pub fn long_from_bytes<T: Long>(self, bytes: [u8; 4]) -> T {
         match self {
             Endian::Big => T::from_bytes_be(bytes),
             Endian::Little => T::from_bytes_le(bytes),
         }
     }
 
-    pub fn longlong_from_bytes<T: LongLong>(&self, bytes: [u8; 8]) -> T {
+    pub fn longlong_from_bytes<T: LongLong>(self, bytes: [u8; 8]) -> T {
         match self {
             Endian::Big => T::from_bytes_be(bytes),
             Endian::Little => T::from_bytes_le(bytes),

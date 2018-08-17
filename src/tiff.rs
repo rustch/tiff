@@ -1,5 +1,5 @@
 use endian::{Endian, EndianReader, Long, LongLong, Short};
-use std::io::{Read, Seek, SeekFrom};
+use std::io::{Read, Seek, SeekFrom, Write};
 
 use std::collections::hash_map::Keys;
 use std::collections::HashMap;
@@ -23,16 +23,21 @@ pub struct IFDEntry {
 
 #[derive(Debug)]
 pub struct IFD {
-    entries: HashMap<Tag, IFDEntry>,
+    read_entries: HashMap<Tag, IFDEntry>,
+    updates: HashMap<Tag, TIFFValue>,
 }
 
 impl<'a> IFD {
     pub fn get_entry_from_tag(&self, tag: Tag) -> Option<&IFDEntry> {
-        self.entries.get(&tag)
+        self.read_entries.get(&tag)
+    }
+
+    pub fn set_entry_from_tag(&mut self, tag: Tag, value: TIFFValue) {
+        self.updates.insert(tag, value);
     }
 
     pub fn all_tags(&self) -> Keys<Tag, IFDEntry> {
-        self.entries.keys()
+        self.read_entries.keys()
     }
 }
 
@@ -102,7 +107,10 @@ impl<'a, R: Read + Seek> Iterator for IFDIterator<'a, R> {
         let next: u32 = self.reader.read_long().ok()?;
         self.next_entry = next as usize;
 
-        Some(IFD { entries: map })
+        Some(IFD {
+            read_entries: map,
+            updates: HashMap::new(),
+        })
     }
 }
 
@@ -116,7 +124,9 @@ error_chain!{
             description("Invalid TIFF file"),
             display("INvalid TIFF File: {}", v),
         }
+
         DirectoryIndexOutOfBounds
+        EncodingError
     }
 }
 
@@ -324,21 +334,23 @@ impl TIFFValue {
     }
 }
 
-pub struct TIFFReader<R> {
+pub struct TIFF<R> {
     inner: R,
     ifds: Vec<IFD>,
     endian: Endian,
     current_directory_index: usize,
 }
 
-impl<R: Read + Seek> TIFFReader<R> {
+impl<R: Read + Seek> TIFF<R> {
     /// Creates a new TIFF reader from the input `Read` type.
-    pub fn new(mut reader: R) -> Result<TIFFReader<R>> {
-        // Check order raw validation
-        let mut order_bytes = [0, 0];
-        reader.read_exact(&mut order_bytes)?;
+    pub fn new(mut reader: R) -> Result<TIFF<R>> {
+        let mut header_bytes: [u8; 8] = Default::default();
+        reader.read_exact(&mut header_bytes)?;
 
-        let order_raw = u16::to_be(u16::from_bytes(order_bytes));
+        let mut word_buff: [u8; 2] = Default::default();
+        word_buff.copy_from_slice(&header_bytes[0..2]);
+
+        let order_raw = u16::to_be(u16::from_bytes(word_buff));
         let order = match order_raw {
             TIFF_LE => Endian::Little,
             TIFF_BE => Endian::Big,
@@ -348,11 +360,10 @@ impl<R: Read + Seek> TIFFReader<R> {
         };
 
         // Valid magic number for tiff
-        let mut tiff_magic_raw = [0, 0];
-        reader.read_exact(&mut tiff_magic_raw)?;
+        word_buff.copy_from_slice(&header_bytes[2..4]);
         let tiff_magic = match order {
-            Endian::Big => u16::from_be(u16::from_bytes(tiff_magic_raw)),
-            Endian::Little => u16::from_le(u16::from_bytes(tiff_magic_raw)),
+            Endian::Big => u16::from_be(u16::from_bytes(word_buff)),
+            Endian::Little => u16::from_le(u16::from_bytes(word_buff)),
         };
 
         if tiff_magic != 42u16 {
@@ -360,8 +371,8 @@ impl<R: Read + Seek> TIFFReader<R> {
         }
 
         // Read
-        let mut offset_bytes: [u8; 4] = [0; 4];
-        reader.read_exact(&mut offset_bytes)?;
+        let mut offset_bytes: [u8; 4] = Default::default();
+        offset_bytes.copy_from_slice(&header_bytes[4..8]);
 
         let offset = match order {
             Endian::Big => u32::from_be(u32::from_bytes(offset_bytes)),
@@ -372,7 +383,7 @@ impl<R: Read + Seek> TIFFReader<R> {
         if ifds.is_empty() {
             Err(ErrorKind::InvalidTIFFFile("TIFF file should have one least one directory").into())
         } else {
-            Ok(TIFFReader {
+            Ok(TIFF {
                 inner: reader,
                 ifds,
                 endian: order,
@@ -396,6 +407,15 @@ impl<R: Read + Seek> TIFFReader<R> {
         T::decode_from_value(&value)
     }
 
+    pub fn set_field<T: Field>(&mut self, field: T) -> Result<()> {
+        let entry = match field.encode_to_value() {
+            Some(val) => val,
+            None => return Err(ErrorKind::EncodingError.into()),
+        };
+        self.ifds[self.current_directory_index].set_entry_from_tag(T::tag(), entry);
+        Ok(())
+    }
+
     /// Set the current reading TIFF directory
     pub fn set_directory_index(&mut self, index: usize) -> Result<()> {
         if index > self.ifds.len() - 1 {
@@ -409,6 +429,29 @@ impl<R: Read + Seek> TIFFReader<R> {
     /// The underlying directories
     pub fn ifds(&self) -> &Vec<IFD> {
         &self.ifds
+    }
+
+    pub fn write<W: Write>(&self, f: &mut W) -> Result<()> {
+        self.write_header(f)
+    }
+
+    fn write_header<W: Write>(&self, f: &mut W) -> Result<()> {
+        // Order byte value
+        let order_bytes = match self.endian {
+            Endian::Little => TIFF_LE,
+            Endian::Big => TIFF_BE,
+        };
+
+        f.write_all(&order_bytes.to_bytes())?;
+
+        let magic_byte = match self.endian {
+            Endian::Little => 42u8.to_le().to_bytes(),
+            Endian::Big => 42u8.to_be().to_bytes(),
+        };
+
+        f.write_all(&magic_byte)?;
+
+        Ok(())
     }
 }
 
@@ -432,7 +475,7 @@ mod tests {
     fn test_sample_be() {
         let bytes: &[u8] = include_bytes!("../samples/arbitro_be.tiff");
         let mut cursor = Cursor::new(bytes);
-        let mut read = TIFFReader::new(&mut cursor).unwrap();
+        let mut read = TIFF::new(&mut cursor).unwrap();
         // println!("IFD {:?}", read.ifds());
         assert_eq!(read.endianness(), Endian::Big);
 
@@ -464,7 +507,7 @@ mod tests {
     fn test_sample_le() {
         let bytes: &[u8] = include_bytes!("../samples/picoawards_le.tiff");
         let mut cursor = Cursor::new(bytes);
-        let mut read = TIFFReader::new(&mut cursor).unwrap();
+        let mut read = TIFF::new(&mut cursor).unwrap();
         // println!("IFD {:?}", read.ifds());
         assert_eq!(read.endianness(), Endian::Little);
 
@@ -514,7 +557,7 @@ mod tests {
     fn test_sample_other() {
         let bytes: &[u8] = include_bytes!("../samples/ycbcr-cat.tif");
         let mut cursor = Cursor::new(bytes);
-        let mut read = TIFFReader::new(&mut cursor).unwrap();
+        let mut read = TIFF::new(&mut cursor).unwrap();
         // println!("IFD {:?}", read.ifds());
         assert_eq!(read.endianness(), Endian::Big);
 
@@ -526,10 +569,6 @@ mod tests {
 
         let photometric_interpretation = ensure_field!(read, PhotometricInterpretation);
         assert_eq!(photometric_interpretation, PhotometricInterpretation::YCbCr);
-
-        // let strip_offsets = ensure_field!(read, StripOffsets);
-        //  et!(value.0, 8);
-        //
 
         let samples_per_pixel = ensure_field!(read, SamplesPerPixel);
         assert_eq!(samples_per_pixel.0, 3);

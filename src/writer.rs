@@ -7,19 +7,21 @@ use super::{TIFF_BE, TIFF_LE};
 use endian::Endian;
 use tag::{Field, Tag};
 use value::TIFFValue;
-error_chain ! {
+
+error_chain! {
     foreign_links {
         Io(::std::io::Error);
     }
 
     errors {
         EncodingError
+        OutOfBounds
     }
 }
 pub struct TIFFWriter<W> {
     inner: W,
     endian: Endian,
-    values_map: HashMap<Tag, TIFFValue>,
+    ifds: Vec<HashMap<Tag, TIFFValue>>,
     position: usize,
 }
 
@@ -27,27 +29,46 @@ impl<W: Write> TIFFWriter<W> {
     pub fn new<T>(inner: W, endian: Endian) -> TIFFWriter<W> {
         TIFFWriter {
             inner,
-            values_map: HashMap::new(),
+            ifds: vec![HashMap::new()],
             position: 0 as usize,
             endian,
         }
     }
 
-    pub fn set_field<F: Field>(&mut self, f: &F) -> Result<()> {
+    pub fn create_new_directory_after(&mut self, ifd: usize) -> Result<usize> {
+        if ifd >= self.ifds.len() {
+            Err(ErrorKind::OutOfBounds.into())
+        } else {
+            self.ifds.insert(ifd, HashMap::new());
+            Ok(self.ifds.len() - 1)
+        }
+    }
+
+    pub fn set_field<F: Field>(&mut self, index: usize, f: &F) -> Result<()> {
         let value = match f.encode_to_value() {
             Some(val) => val,
             None => return Err(ErrorKind::EncodingError.into()),
         };
 
-        self.values_map.insert(F::tag(), value);
+        self.ifds[index].insert(F::tag(), value);
+
         Ok(())
     }
 
     pub fn write(&mut self) -> Result<()> {
-        self.write_header()
+        self.write_header_magic()?;
+
+        self.adjust_writer_to_next_ifd()?;
+
+        for tags_map in &self.ifds {
+            let sorted_tags: Vec<Keys<Tag, TIFFValue>> =
+                &tags_map.keys().enumerate().collect().sort_by(|a, b| a > b);
+        }
+
+        Ok(())
     }
 
-    fn write_header(&mut self) -> Result<()> {
+    fn write_header_magic(&mut self) -> Result<()> {
         // Order byte value
         let order_bytes = match self.endian {
             Endian::Little => TIFF_LE,
@@ -67,10 +88,11 @@ impl<W: Write> TIFFWriter<W> {
         Ok(())
     }
 
-    fn adjuste_writer_to_next_ifd(&mut self) -> Result<()> {
+    fn adjust_writer_to_next_ifd(&mut self) -> Result<()> {
         if self.position + 1 > (1 << 32 - 1) {
-            Ok(())
+            return Ok(());
         }
+
         if self.position % 2 != 0 {
             self.inner.write_all(&[0])?;
             self.position += 1;

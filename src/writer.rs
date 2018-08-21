@@ -81,7 +81,8 @@ impl<W: Write> TIFFWriter<W> {
             Endian::Big => TIFF_BE,
         };
 
-        self.inner.write_all(&order_bytes.to_bytes())?;
+        self.inner
+            .write_all(&self.endian.short_adjusted(order_bytes))?;
         self.position += 2;
 
         let magic_byte = match self.endian {

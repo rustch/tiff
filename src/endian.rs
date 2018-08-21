@@ -13,6 +13,43 @@ pub const BE: Endian = Endian::Big;
 /// A constant representing a Little endianness;
 pub const LE: Endian = Endian::Little;
 
+pub trait Byte: Copy + Sized {
+    fn from_bytes_le(bytes: [u8; 1]) -> Self;
+    fn from_bytes_be(bytes: [u8; 1]) -> Self;
+    fn to_bytes_le(self) -> [u8; 1];
+    fn to_bytes_be(self) -> [u8; 1];
+}
+
+impl Byte for i8 {
+    fn from_bytes_le(bytes: [u8; 1]) -> i8 {
+        i8::from_le_bytes(bytes)
+    }
+    fn from_bytes_be(bytes: [u8; 1]) -> i8 {
+        i8::from_be_bytes(bytes)
+    }
+    fn to_bytes_le(self) -> [u8; 1] {
+        self.to_le_bytes()
+    }
+    fn to_bytes_be(self) -> [u8; 1] {
+        self.to_be_bytes()
+    }
+}
+
+impl Byte for u8 {
+    fn from_bytes_le(bytes: [u8; 1]) -> u8 {
+        u8::from_le_bytes(bytes)
+    }
+    fn from_bytes_be(bytes: [u8; 1]) -> u8 {
+        u8::from_be_bytes(bytes)
+    }
+    fn to_bytes_le(self) -> [u8; 1] {
+        self.to_le_bytes()
+    }
+    fn to_bytes_be(self) -> [u8; 1] {
+        self.to_be_bytes()
+    }
+}
+
 pub trait Short: Copy + Sized {
     fn from_bytes_le(bytes: [u8; 2]) -> Self;
     fn from_bytes_be(bytes: [u8; 2]) -> Self;
@@ -128,10 +165,24 @@ impl LongLong for i64 {
 }
 
 impl Endian {
+    pub fn byte_adjusted<T: Byte>(self, val: T) -> [u8; 1] {
+        match self {
+            Endian::Big => val.to_bytes_be(),
+            Endian::Little => val.to_bytes_le(),
+        }
+    }
+
     pub fn short_from_bytes<T: Short>(self, bytes: [u8; 2]) -> T {
         match self {
             Endian::Big => T::from_bytes_be(bytes),
             Endian::Little => T::from_bytes_le(bytes),
+        }
+    }
+
+    pub fn short_adjusted<T: Short>(self, val: T) -> [u8; 2] {
+        match self {
+            Endian::Big => val.to_bytes_be(),
+            Endian::Little => val.to_bytes_le(),
         }
     }
 
@@ -142,10 +193,23 @@ impl Endian {
         }
     }
 
+    pub fn long_adjusted<T: Long>(self, val: T) -> [u8; 4] {
+        match self {
+            Endian::Big => val.to_bytes_be(),
+            Endian::Little => val.to_bytes_le(),
+        }
+    }
+
     pub fn longlong_from_bytes<T: LongLong>(self, bytes: [u8; 8]) -> T {
         match self {
             Endian::Big => T::from_bytes_be(bytes),
             Endian::Little => T::from_bytes_le(bytes),
+        }
+    }
+    pub fn longlong_adjusted<T: LongLong>(self, val: T) -> [u8; 8] {
+        match self {
+            Endian::Big => val.to_bytes_be(),
+            Endian::Little => val.to_bytes_le(),
         }
     }
 }

@@ -49,12 +49,12 @@ impl TIFFValue {
     ) -> Result<TIFFValue> {
         match entry.value_type {
             1 => {
-                let bytes = TIFFValue::read_n_bytes(reader, entry, entry.count as usize)?;
+                let bytes = TIFFValue::read_n_bytes(reader, entry, entry.count as usize, endian)?;
                 Ok(TIFFValue::Byte(bytes))
             }
 
             2 => {
-                let values = TIFFValue::read_ascii(reader, entry)?;
+                let values = TIFFValue::read_ascii(reader, entry, endian)?;
                 Ok(TIFFValue::Ascii(values))
             }
 
@@ -74,7 +74,8 @@ impl TIFFValue {
             }
 
             6 => {
-                let mut bytes = TIFFValue::read_n_bytes(reader, entry, entry.count as usize)?;
+                let mut bytes =
+                    TIFFValue::read_n_bytes(reader, entry, entry.count as usize, endian)?;
                 let result = bytes.iter().map(|i| *i as i8).collect();
                 Ok(TIFFValue::SByte(result))
             }
@@ -103,7 +104,7 @@ impl TIFFValue {
                 Ok(TIFFValue::Double(result))
             }
             _ => {
-                let bytes = TIFFValue::read_n_bytes(reader, entry, entry.count as usize)?;
+                let bytes = TIFFValue::read_n_bytes(reader, entry, entry.count as usize, endian)?;
                 Ok(TIFFValue::Undefined(bytes))
             }
         }
@@ -139,9 +140,8 @@ impl TIFFValue {
             TIFFValue::Short(val) => {
                 let len = val.len();
                 let mut buff = Vec::new();
-
                 for el in val {
-                    buff.extend_from_slice(&el.to_bytes());
+                    buff.extend_from_slice(&endian.short_adjusted(el));
                 }
                 (len, buff)
             }
@@ -149,7 +149,7 @@ impl TIFFValue {
                 let len = val.len();
                 let mut buff = Vec::new();
                 for el in val {
-                    buff.extend_from_slice(&el.to_bytes());
+                    buff.extend_from_slice(&endian.long_adjusted(el));
                 }
                 (len, buff)
             }
@@ -158,16 +158,16 @@ impl TIFFValue {
                 let len = val.len();
                 let mut buff = Vec::new();
                 for el in val {
-                    buff.extend_from_slice(&el.to_bytes());
+                    buff.extend_from_slice(&endian.byte_adjusted(el));
                 }
                 (len, buff)
             }
-            TIFFValue::Undefined(val) => (val.len(), vec![]),
+            TIFFValue::Undefined(val) => (val.len(), val),
             TIFFValue::SShort(val) => {
                 let len = val.len();
                 let mut buff = Vec::new();
                 for el in val {
-                    buff.extend_from_slice(&el.to_bytes());
+                    buff.extend_from_slice(&endian.short_adjusted(el));
                 }
                 (len, buff)
             }
@@ -175,7 +175,7 @@ impl TIFFValue {
                 let len = val.len();
                 let mut buff = Vec::new();
                 for el in val {
-                    buff.extend_from_slice(&el.to_bytes());
+                    buff.extend_from_slice(&endian.long_adjusted(el));
                 }
                 (len, buff)
             }
@@ -198,9 +198,10 @@ impl TIFFValue {
         reader: &mut R,
         entry: &IFDEntry,
         size: usize,
+        endian: Endian,
     ) -> Result<Vec<u8>> {
         if size <= 4 {
-            let bytes = &entry.value_offset.to_bytes();
+            let bytes = entry.value_offset.to_ne_bytes();
             Ok(bytes.to_vec())
         } else {
             reader.seek(SeekFrom::Start(u64::from(entry.value_offset)))?;
@@ -210,8 +211,12 @@ impl TIFFValue {
         }
     }
 
-    fn read_ascii<R: Read + Seek>(reader: &mut R, entry: &IFDEntry) -> Result<Vec<String>> {
-        let bytes = TIFFValue::read_n_bytes(reader, entry, entry.count as usize)?;
+    fn read_ascii<R: Read + Seek>(
+        reader: &mut R,
+        entry: &IFDEntry,
+        endian: Endian,
+    ) -> Result<Vec<String>> {
+        let bytes = TIFFValue::read_n_bytes(reader, entry, entry.count as usize, endian)?;
 
         // Splits by null cahracter
         bytes
@@ -227,7 +232,7 @@ impl TIFFValue {
     ) -> Result<Vec<T>> {
         let mut conv_buff: [u8; 2] = [0; 2];
         let size = entry.count * 2;
-        let mut bytes = TIFFValue::read_n_bytes(reader, entry, size as usize)?;
+        let mut bytes = TIFFValue::read_n_bytes(reader, entry, size as usize, endian)?;
 
         if endian == Endian::Big && size <= 4 {
             bytes.reverse()
@@ -251,7 +256,7 @@ impl TIFFValue {
     ) -> Result<Vec<T>> {
         let mut conv_buff: [u8; 4] = [0; 4];
         let size = entry.count * 4;
-        let mut bytes = TIFFValue::read_n_bytes(reader, entry, size as usize)?;
+        let mut bytes = TIFFValue::read_n_bytes(reader, entry, size as usize, endian)?;
 
         if endian == Endian::Big && size <= 4 {
             bytes.reverse()
@@ -273,7 +278,7 @@ impl TIFFValue {
     ) -> Result<Vec<T>> {
         let mut conv_buff: [u8; 8] = [0; 8];
         let size = entry.count * 8;
-        let mut bytes = TIFFValue::read_n_bytes(reader, entry, size as usize)?;
+        let mut bytes = TIFFValue::read_n_bytes(reader, entry, size as usize, endian)?;
 
         if endian == Endian::Big && size <= 8 {
             bytes.reverse()
@@ -295,7 +300,7 @@ impl TIFFValue {
     ) -> Result<Vec<Rational<T>>> {
         let size = entry.count * 8;
         let mut conv_buff: [u8; 4] = [0; 4];
-        let bytes = TIFFValue::read_n_bytes(reader, entry, size as usize)?;
+        let bytes = TIFFValue::read_n_bytes(reader, entry, size as usize, endian)?;
 
         let elements: Vec<T> = bytes
             .chunks(4)

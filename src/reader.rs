@@ -38,7 +38,7 @@ impl<R: Read + Seek> TIFFReader<R> {
         let mut word_buff: [u8; 2] = Default::default();
         word_buff.copy_from_slice(&header_bytes[0..2]);
 
-        let order_raw = u16::to_be(u16::from_bytes(word_buff));
+        let order_raw = u16::to_be(u16::from_ne_bytes(word_buff));
         let order = match order_raw {
             TIFF_LE => Endian::Little,
             TIFF_BE => Endian::Big,
@@ -50,8 +50,8 @@ impl<R: Read + Seek> TIFFReader<R> {
         // Valid magic number for tiff
         word_buff.copy_from_slice(&header_bytes[2..4]);
         let tiff_magic = match order {
-            Endian::Big => u16::from_be(u16::from_bytes(word_buff)),
-            Endian::Little => u16::from_le(u16::from_bytes(word_buff)),
+            Endian::Big => u16::from_be_bytes(word_buff),
+            Endian::Little => u16::from_le_bytes(word_buff),
         };
 
         if tiff_magic != 42u16 {
@@ -63,8 +63,8 @@ impl<R: Read + Seek> TIFFReader<R> {
         offset_bytes.copy_from_slice(&header_bytes[4..8]);
 
         let offset = match order {
-            Endian::Big => u32::from_be(u32::from_bytes(offset_bytes)),
-            Endian::Little => u32::from_le(u32::from_bytes(offset_bytes)),
+            Endian::Big => u32::from_be_bytes(offset_bytes),
+            Endian::Little => u32::from_le_bytes(offset_bytes),
         };
 
         let ifds: Vec<IFD> = IFDIterator::new(&mut reader, offset as usize, order).collect();

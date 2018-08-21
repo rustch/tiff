@@ -16,14 +16,22 @@ pub const LE: Endian = Endian::Little;
 pub trait Short: Copy + Sized {
     fn from_bytes_le(bytes: [u8; 2]) -> Self;
     fn from_bytes_be(bytes: [u8; 2]) -> Self;
+    fn to_bytes_le(self) -> [u8; 2];
+    fn to_bytes_be(self) -> [u8; 2];
 }
 
 impl Short for u16 {
     fn from_bytes_le(bytes: [u8; 2]) -> u16 {
-        u16::from_le(u16::from_bytes(bytes))
+        u16::from_le_bytes(bytes)
     }
     fn from_bytes_be(bytes: [u8; 2]) -> u16 {
-        u16::from_be(u16::from_bytes(bytes))
+        u16::from_be_bytes(bytes)
+    }
+    fn to_bytes_le(self) -> [u8; 2] {
+        self.to_le_bytes()
+    }
+    fn to_bytes_be(self) -> [u8; 2] {
+        self.to_be_bytes()
     }
 }
 
@@ -34,18 +42,34 @@ impl Short for i16 {
     fn from_bytes_be(bytes: [u8; 2]) -> i16 {
         i16::from_be_bytes(bytes)
     }
+
+    fn to_bytes_le(self) -> [u8; 2] {
+        self.to_le_bytes()
+    }
+    fn to_bytes_be(self) -> [u8; 2] {
+        self.to_be_bytes()
+    }
 }
 pub trait Long: Copy + Sized {
     fn from_bytes_le(bytes: [u8; 4]) -> Self;
     fn from_bytes_be(bytes: [u8; 4]) -> Self;
+    fn to_bytes_le(self) -> [u8; 4];
+    fn to_bytes_be(self) -> [u8; 4];
 }
 
 impl Long for u32 {
     fn from_bytes_le(bytes: [u8; 4]) -> u32 {
-        u32::from_le(u32::from_bytes(bytes))
+        u32::from_le_bytes(bytes)
     }
     fn from_bytes_be(bytes: [u8; 4]) -> u32 {
-        u32::from_be(u32::from_bytes(bytes))
+        u32::from_be_bytes(bytes)
+    }
+
+    fn to_bytes_le(self) -> [u8; 4] {
+        self.to_le_bytes()
+    }
+    fn to_bytes_be(self) -> [u8; 4] {
+        self.to_be_bytes()
     }
 }
 
@@ -56,19 +80,35 @@ impl Long for i32 {
     fn from_bytes_be(bytes: [u8; 4]) -> i32 {
         i32::from_be_bytes(bytes)
     }
+    fn to_bytes_le(self) -> [u8; 4] {
+        self.to_le_bytes()
+    }
+    fn to_bytes_be(self) -> [u8; 4] {
+        self.to_be_bytes()
+    }
 }
 
 pub trait LongLong: Copy + Sized {
     fn from_bytes_le(bytes: [u8; 8]) -> Self;
     fn from_bytes_be(bytes: [u8; 8]) -> Self;
+
+    fn to_bytes_le(self) -> [u8; 8];
+    fn to_bytes_be(self) -> [u8; 8];
 }
 
 impl LongLong for u64 {
     fn from_bytes_le(bytes: [u8; 8]) -> u64 {
-        u64::from_le(u64::from_bytes(bytes))
+        u64::from_le_bytes(bytes)
     }
     fn from_bytes_be(bytes: [u8; 8]) -> u64 {
-        u64::from_be(u64::from_bytes(bytes))
+        u64::from_be_bytes(bytes)
+    }
+
+    fn to_bytes_le(self) -> [u8; 8] {
+        self.to_le_bytes()
+    }
+    fn to_bytes_be(self) -> [u8; 8] {
+        self.to_be_bytes()
     }
 }
 
@@ -78,6 +118,12 @@ impl LongLong for i64 {
     }
     fn from_bytes_be(bytes: [u8; 8]) -> i64 {
         i64::from_be_bytes(bytes)
+    }
+    fn to_bytes_le(self) -> [u8; 8] {
+        self.to_le_bytes()
+    }
+    fn to_bytes_be(self) -> [u8; 8] {
+        self.to_be_bytes()
     }
 }
 

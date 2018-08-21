@@ -6,7 +6,6 @@ use std::collections::HashMap;
 use std::io::{Read, Seek, SeekFrom};
 use tag::Tag;
 
-use std::ascii::AsciiExt;
 error_chain!{
     foreign_links {
         Io(::std::io::Error);
@@ -110,8 +109,8 @@ impl TIFFValue {
         }
     }
 
-    pub fn to_bytes(&self) -> Result<Vec<u8>> {
-        let type_byte: u16 = match self {
+    pub fn to_ifd_entry(self, tag: Tag, endian: Endian) -> Result<IFDEntry> {
+        let value_type: u16 = match self {
             TIFFValue::Byte(_) => 1,
             TIFFValue::Ascii(_) => 2,
             TIFFValue::Short(_) => 3,
@@ -126,26 +125,73 @@ impl TIFFValue {
             TIFFValue::Double(_) => 12,
         };
 
-        let mut buff: Vec<u8> = Vec::new();
-        buff.extend_from_slice(&type_byte.to_bytes());
+        let payload: (usize, Vec<u8>) = match self {
+            TIFFValue::Byte(val) => (val.len(), val),
+            TIFFValue::Ascii(val) => {
+                if val.iter().all(|s| s[..].is_ascii()) {
+                    return Err(ErrorKind::EncodingError.into());
+                }
 
-        let payload: &[u8] = match self {
-            TIFFValue::Byte(val) => val,
-            TIFFValue::Ascii(val) if val.iter().all(|s| s[..].is_ascii()) => val.as_bytes(),
-            TIFFValue::Short(val) => val,
-            TIFFValue::Long(val) => val,
-            TIFFValue::Rational(val) => val,
-            TIFFValue::SByte(val) => val,
-            TIFFValue::Undefined(val) => val,
-            TIFFValue::SShort(val) => val,
-            TIFFValue::SLong(val) => val,
-            TIFFValue::SRational(val) => val,
-            TIFFValue::Float(val) => val,
-            TIFFValue::Double(val) => val,
+                let size = val.len();
+                let content = val.into_iter().flat_map(|s| s.into_bytes()).collect();
+                (size, content)
+            }
+            TIFFValue::Short(val) => {
+                let len = val.len();
+                let mut buff = Vec::new();
+
+                for el in val {
+                    buff.extend_from_slice(&el.to_bytes());
+                }
+                (len, buff)
+            }
+            TIFFValue::Long(val) => {
+                let len = val.len();
+                let mut buff = Vec::new();
+                for el in val {
+                    buff.extend_from_slice(&el.to_bytes());
+                }
+                (len, buff)
+            }
+            TIFFValue::Rational(val) => (val.len(), vec![]),
+            TIFFValue::SByte(val) => {
+                let len = val.len();
+                let mut buff = Vec::new();
+                for el in val {
+                    buff.extend_from_slice(&el.to_bytes());
+                }
+                (len, buff)
+            }
+            TIFFValue::Undefined(val) => (val.len(), vec![]),
+            TIFFValue::SShort(val) => {
+                let len = val.len();
+                let mut buff = Vec::new();
+                for el in val {
+                    buff.extend_from_slice(&el.to_bytes());
+                }
+                (len, buff)
+            }
+            TIFFValue::SLong(val) => {
+                let len = val.len();
+                let mut buff = Vec::new();
+                for el in val {
+                    buff.extend_from_slice(&el.to_bytes());
+                }
+                (len, buff)
+            }
+            TIFFValue::SRational(val) => (val.len(), vec![]),
+            TIFFValue::Float(val) => (val.len(), vec![]),
+            TIFFValue::Double(val) => (val.len(), vec![]),
+            _ => return Err(ErrorKind::EncodingError.into()),
         };
 
-        buff.extend_from_slice(payload);
-        Ok(buff)
+        Ok(IFDEntry {
+            value_offset: 0,
+            count: payload.0 as u32,
+            writing_payload: Some(payload.1),
+            tag,
+            value_type,
+        })
     }
 
     fn read_n_bytes<R: Read + Seek>(
@@ -275,6 +321,7 @@ pub struct IFDEntry {
     pub value_type: u16,
     pub count: u32,
     pub value_offset: u32,
+    pub writing_payload: Option<Vec<u8>>, // Use donly when writing
 }
 
 #[derive(Debug)]
@@ -350,6 +397,7 @@ impl<'a, R: Read + Seek> Iterator for IFDIterator<'a, R> {
                 value_type: value_type_raw,
                 count,
                 value_offset,
+                writing_payload: None,
             };
 
             map.insert(tag_value, entry);

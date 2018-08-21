@@ -85,8 +85,8 @@ impl<W: Write> TIFFWriter<W> {
         self.position += 2;
 
         let magic_byte = match self.endian {
-            Endian::Little => 42u8.to_le().to_bytes(),
-            Endian::Big => 42u8.to_be().to_bytes(),
+            Endian::Little => 42u16.to_le_bytes(),
+            Endian::Big => 42u16.to_be_bytes(),
         };
 
         self.inner.write_all(&magic_byte)?;

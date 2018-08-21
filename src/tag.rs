@@ -1,4 +1,4 @@
-use value::{Rational, TIFFValue};
+use ifd::{Rational, TIFFValue};
 
 use chrono;
 use std::convert::From;
@@ -12,6 +12,15 @@ macro_rules! tags_id_definition {
         pub enum Tag {
             $($name,)*
             Unknown(u16)
+        }
+
+        impl Tag {
+            pub fn tag_value(&self) -> u16 {
+                match self {
+                    Tag::Unknown(val) => *val,
+                    $(Tag::$name => $value,)*
+                }
+            }
         }
 
         impl From<u16> for Tag {

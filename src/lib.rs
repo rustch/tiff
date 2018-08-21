@@ -12,8 +12,8 @@ extern crate chrono;
 extern crate error_chain;
 
 mod endian;
+mod ifd;
 mod reader;
-mod value;
 mod writer;
 
 pub use endian::{BE, LE};

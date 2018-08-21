@@ -5,8 +5,8 @@ use std::collections::HashMap;
 use super::{TIFF_BE, TIFF_LE};
 
 use endian::Endian;
+use ifd::TIFFValue;
 use tag::{Field, Tag};
-use value::TIFFValue;
 
 error_chain! {
     foreign_links {
@@ -60,10 +60,16 @@ impl<W: Write> TIFFWriter<W> {
 
         self.adjust_writer_to_next_ifd()?;
 
-        for tags_map in &self.ifds {
-            let sorted_tags: Vec<Keys<Tag, TIFFValue>> =
-                &tags_map.keys().enumerate().collect().sort_by(|a, b| a > b);
-        }
+        for tags_map in &self.ifds {}
+
+        Ok(())
+    }
+
+    fn write_ifd(&mut self, ifd: &HashMap<Tag, TIFFValue>) -> Result<()> {
+        let mut sorted_tags = ifd.keys().collect::<Vec<&Tag>>();
+        sorted_tags.sort_by(|a, b| a.tag_value().cmp(&b.tag_value()));
+
+        for tag in sorted_tags {}
 
         Ok(())
     }

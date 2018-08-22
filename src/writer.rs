@@ -70,16 +70,30 @@ impl<W: Write> TIFFWriter<W> {
 
         self.adjust_writer_to_next_ifd()?;
 
-        for entry in &self.ifds {}
+        for ifd in &self.ifds {
+            TIFFWriter::write_ifd(&mut self.inner, &ifd, self.endian)?;
+        }
 
         Ok(())
     }
 
-    fn write_ifd(&mut self, ifd: &HashMap<Tag, TIFFValue>) -> Result<()> {
+    fn write_ifd(f: &mut W, ifd: &HashMap<Tag, WritingEntryPayload>, endian: Endian) -> Result<()> {
         let mut sorted_tags = ifd.keys().collect::<Vec<&Tag>>();
         sorted_tags.sort_by(|a, b| a.tag_value().cmp(&b.tag_value()));
 
-        for tag in sorted_tags {}
+        let mut buff = Vec::<u8>::new();
+        for tag in sorted_tags {
+            // Get the entry
+            let entry = ifd.get(tag).unwrap();
+
+            /// Writing
+            // 1 Type
+
+
+            // 2 - Count
+            let size = entry.count as u32;
+            buff.extend_from_slice(&endian.long_adjusted(size));
+        }
 
         Ok(())
     }

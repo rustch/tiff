@@ -14,29 +14,29 @@ use tag::Tag;
 /// An `IFDEntry` represents an **image file directory**
 /// mentionned inside the tiff specification. This is the base
 #[derive(Debug)]
-pub struct IFDEntry {
-    pub tag: Tag,
-    pub value_type: u16,
-    pub count: u32,
-    pub value_offset: u32,
+struct IFDEntry {
+    tag: Tag,
+    value_type: u16,
+    count: u32,
+    value_offset: u32,
 }
 
 #[derive(Debug)]
-pub struct IFD {
+struct IFD {
     read_entries: HashMap<Tag, IFDEntry>,
 }
 
 impl<'a> IFD {
-    pub fn get_entry_from_tag(&self, tag: Tag) -> Option<&IFDEntry> {
+    fn get_entry_from_tag(&self, tag: Tag) -> Option<&IFDEntry> {
         self.read_entries.get(&tag)
     }
 
-    pub fn all_tags(&self) -> Keys<Tag, IFDEntry> {
+    fn all_tags(&self) -> Keys<Tag, IFDEntry> {
         self.read_entries.keys()
     }
 }
 
-pub struct IFDIterator<'a, R: Read + Seek + 'a> {
+struct IFDIterator<'a, R: Read + Seek + 'a> {
     reader: EndianReader<'a, R>,
     next_entry: usize,
     position: usize,
@@ -203,15 +203,10 @@ impl<R: Read + Seek> TIFFReader<R> {
             Ok(())
         }
     }
-
-    /// The underlying directories
-    pub fn ifds(&self) -> &Vec<IFD> {
-        &self.ifds
-    }
 }
 
 impl TIFFValue {
-    pub fn new_from_entry<R: Read + Seek>(
+    fn new_from_entry<R: Read + Seek>(
         reader: &mut R,
         entry: &IFDEntry,
         endian: Endian,

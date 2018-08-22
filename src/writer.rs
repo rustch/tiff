@@ -5,8 +5,8 @@ use std::collections::HashMap;
 use super::{TIFF_BE, TIFF_LE};
 
 use endian::Endian;
-use ifd::{IFDEntry, TIFFValue};
 use tag::{Field, Tag};
+use value::TIFFValue;
 
 error_chain! {
     foreign_links {
@@ -18,10 +18,17 @@ error_chain! {
         OutOfBounds
     }
 }
+
+struct WritingEntryPayload {
+    count: usize,
+    payload: Vec<u8>,
+    value_type: u16,
+}
+
 pub struct TIFFWriter<W> {
     inner: W,
     endian: Endian,
-    ifds: Vec<HashMap<Tag, IFDEntry>>,
+    ifds: Vec<HashMap<Tag, WritingEntryPayload>>,
     position: usize,
 }
 
@@ -108,5 +115,118 @@ impl<W: Write> TIFFWriter<W> {
             self.position += 1;
         }
         Ok(())
+    }
+}
+
+impl TIFFValue {
+    fn convert_to_entry(self, tag: Tag, endian: Endian) -> Result<WritingEntryPayload> {
+        let value_type: u16 = match self {
+            TIFFValue::Byte(_) => 1,
+            TIFFValue::Ascii(_) => 2,
+            TIFFValue::Short(_) => 3,
+            TIFFValue::Long(_) => 4,
+            TIFFValue::Rational(_) => 5,
+            TIFFValue::SByte(_) => 6,
+            TIFFValue::Undefined(_) => 7,
+            TIFFValue::SShort(_) => 8,
+            TIFFValue::SLong(_) => 9,
+            TIFFValue::SRational(_) => 10,
+            TIFFValue::Float(_) => 11,
+            TIFFValue::Double(_) => 12,
+        };
+
+        let payload: (usize, Vec<u8>) = match self {
+            TIFFValue::Byte(val) => (val.len(), val),
+            TIFFValue::Ascii(val) => {
+                if val.iter().all(|s| s[..].is_ascii()) {
+                    return Err(ErrorKind::EncodingError.into());
+                }
+
+                let size = val.len();
+                let content = val.into_iter().flat_map(|s| s.into_bytes()).collect();
+                (size, content)
+            }
+            TIFFValue::Short(val) => {
+                let len = val.len();
+                let mut buff = Vec::new();
+                for el in val {
+                    buff.extend_from_slice(&endian.short_adjusted(el));
+                }
+                (len, buff)
+            }
+            TIFFValue::Long(val) => {
+                let len = val.len();
+                let mut buff = Vec::new();
+                for el in val {
+                    buff.extend_from_slice(&endian.long_adjusted(el));
+                }
+                (len, buff)
+            }
+            TIFFValue::Rational(val) => {
+                let len = val.len();
+                let mut buff = Vec::new();
+                for el in val {
+                    buff.extend_from_slice(&endian.long_adjusted(el.num));
+                    buff.extend_from_slice(&endian.long_adjusted(el.denom));
+                }
+                (len, buff)
+            }
+            TIFFValue::SByte(val) => {
+                let len = val.len();
+                let mut buff = Vec::new();
+                for el in val {
+                    buff.extend_from_slice(&endian.byte_adjusted(el));
+                }
+                (len, buff)
+            }
+            TIFFValue::Undefined(val) => (val.len(), val),
+            TIFFValue::SShort(val) => {
+                let len = val.len();
+                let mut buff = Vec::new();
+                for el in val {
+                    buff.extend_from_slice(&endian.short_adjusted(el));
+                }
+                (len, buff)
+            }
+            TIFFValue::SLong(val) => {
+                let len = val.len();
+                let mut buff = Vec::new();
+                for el in val {
+                    buff.extend_from_slice(&endian.long_adjusted(el));
+                }
+                (len, buff)
+            }
+            TIFFValue::SRational(val) => {
+                let len = val.len();
+                let mut buff = Vec::new();
+                for el in val {
+                    buff.extend_from_slice(&endian.long_adjusted(el.num));
+                    buff.extend_from_slice(&endian.long_adjusted(el.denom));
+                }
+                (len, buff)
+            }
+            TIFFValue::Float(val) => {
+                let len = val.len();
+                let mut buff = Vec::new();
+                for el in val {
+                    buff.extend_from_slice(&endian.long_adjusted(el.to_bits()));
+                }
+                (len, buff)
+            }
+            TIFFValue::Double(val) => {
+                let len = val.len();
+                let mut buff = Vec::new();
+                for el in val {
+                    buff.extend_from_slice(&endian.longlong_adjusted(el.to_bits()));
+                }
+                (len, buff)
+            }
+        };
+
+        Ok(WritingEntryPayload {
+            count: payload.0,
+            payload: payload.1,
+            value_type,
+        })
     }
 }

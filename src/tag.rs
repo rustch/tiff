@@ -1,4 +1,4 @@
-use ifd::{Rational, TIFFValue};
+use value::{Rational, TIFFValue};
 
 use chrono;
 use std::convert::From;

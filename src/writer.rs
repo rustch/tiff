@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use super::{TIFF_BE, TIFF_LE};
 
 use endian::Endian;
-use ifd::TIFFValue;
+use ifd::{IFDEntry, TIFFValue};
 use tag::{Field, Tag};
 
 error_chain! {
@@ -21,7 +21,7 @@ error_chain! {
 pub struct TIFFWriter<W> {
     inner: W,
     endian: Endian,
-    ifds: Vec<HashMap<Tag, TIFFValue>>,
+    ifds: Vec<HashMap<Tag, IFDEntry>>,
     position: usize,
 }
 
@@ -50,8 +50,11 @@ impl<W: Write> TIFFWriter<W> {
             None => return Err(ErrorKind::EncodingError.into()),
         };
 
-        self.ifds[index].insert(F::tag(), value);
-
+        let entry = match value.convert_to_entry(F::tag(), self.endian) {
+            Ok(val) => val,
+            Err(_err) => return Err(ErrorKind::EncodingError.into()),
+        };
+        self.ifds[index].insert(F::tag(), entry);
         Ok(())
     }
 
@@ -60,7 +63,7 @@ impl<W: Write> TIFFWriter<W> {
 
         self.adjust_writer_to_next_ifd()?;
 
-        for tags_map in &self.ifds {}
+        for entry in &self.ifds {}
 
         Ok(())
     }

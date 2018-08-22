@@ -349,7 +349,7 @@ pub struct IFDEntry {
     pub value_type: u16,
     pub count: u32,
     pub value_offset: u32,
-    pub writing_payload: Option<Vec<u8>>, // Use donly when writing
+    pub writing_payload: Option<Vec<u8>>, // Used only when writing
 }
 
 #[derive(Debug)]

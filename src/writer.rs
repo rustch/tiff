@@ -20,6 +20,7 @@ error_chain! {
 }
 
 struct WritingEntryPayload {
+    tag: Tag,
     count: usize,
     payload: Vec<u8>,
     value_type: u16,
@@ -30,6 +31,46 @@ pub struct TIFFWriter<W> {
     endian: Endian,
     ifds: Vec<HashMap<Tag, WritingEntryPayload>>,
     position: usize,
+}
+
+fn write_ifd_tag<'a, W: Write>(
+    w: &mut W,
+    position: usize,
+    endian: Endian,
+    ifd: Vec<&'a WritingEntryPayload>,
+) -> Result<Vec<&'a WritingEntryPayload>> {
+    // Sort tag by value
+    let mut buff: [u8; 12] = [0; 12];
+    let mut big_entries = Vec::new();
+    let mut next_data_cursor = position + ifd.len() * 12 + 4; // +4 For the next offset
+
+    for entry in ifd {
+        // Writing
+
+        // 1 - Tag
+        let tag = endian.short_adjusted(entry.tag.tag_value());
+        buff.copy_from_slice(&tag);
+
+        // 2 - Type
+        let value_type = endian.short_adjusted(entry.value_type);
+        buff[2..4].copy_from_slice(&value_type);
+
+        // 3 - Count
+        let count = endian.short_adjusted(entry.count as u16);
+        buff[4..6].copy_from_slice(&count);
+
+        // 4 - Offset/Value
+        if entry.payload.len() <= 4 {
+            buff[6..8].copy_from_slice(&entry.payload);
+        } else {
+            // We need to compute the offset with the provided parameters
+            buff[6..8].copy_from_slice(&endian.short_adjusted(next_data_cursor as u16));
+            next_data_cursor += entry.payload.len();
+            big_entries.push(entry);
+        }
+    }
+    w.write_all(&buff)?;
+    Ok(big_entries)
 }
 
 impl<W: Write> TIFFWriter<W> {
@@ -66,35 +107,48 @@ impl<W: Write> TIFFWriter<W> {
     }
 
     pub fn write(&mut self) -> Result<()> {
+        // Header
         self.write_header_magic()?;
 
-        self.adjust_writer_to_next_ifd()?;
+        // First 0th Offset -> 8
+        self.inner.write_all(&self.endian.long_adjusted(8u32))?;
+        self.position += 4;
 
         for ifd in &self.ifds {
-            TIFFWriter::write_ifd(&mut self.inner, &ifd, self.endian)?;
+            // Adjust position
+            if self.position + 1 > (1 << (32 - 1)) {
+                return Ok(());
+            }
+
+            if self.position % 2 != 0 {
+                self.inner.write_all(&[0])?;
+                self.position += 1;
+            }
+
+            // Write ifd len
+            self.inner
+                .write_all(&self.endian.short_adjusted(ifd.len() as u16))?;
+            self.position += 2;
+
+            // Sort tag by value
+            let mut sorted_tags = ifd.keys().collect::<Vec<&Tag>>();
+            sorted_tags.sort_by(|a, b| a.tag_value().cmp(&b.tag_value()));
+
+            // Create list to apply elements
+            let entries: Vec<&WritingEntryPayload> =
+                ifd.into_iter().map(|(_, value)| value).collect();
+
+            // Write IFD tag list
+            let big_values = write_ifd_tag(&mut self.inner, self.position, self.endian, entries)?;
+
+            let all_big: Vec<u8> = big_values
+                .iter()
+                .flat_map(|v| &v.payload)
+                .cloned()
+                .collect();
+            // write_ifd_bigvalues(&mut self.inner, self.endian, &big_values_entries)?;
+            self.inner.write_all(&all_big)?;
         }
-
-        Ok(())
-    }
-
-    fn write_ifd(f: &mut W, ifd: &HashMap<Tag, WritingEntryPayload>, endian: Endian) -> Result<()> {
-        let mut sorted_tags = ifd.keys().collect::<Vec<&Tag>>();
-        sorted_tags.sort_by(|a, b| a.tag_value().cmp(&b.tag_value()));
-
-        let mut buff = Vec::<u8>::new();
-        for tag in sorted_tags {
-            // Get the entry
-            let entry = ifd.get(tag).unwrap();
-
-            /// Writing
-            // 1 Type
-
-
-            // 2 - Count
-            let size = entry.count as u32;
-            buff.extend_from_slice(&endian.long_adjusted(size));
-        }
-
         Ok(())
     }
 
@@ -116,18 +170,6 @@ impl<W: Write> TIFFWriter<W> {
 
         self.inner.write_all(&magic_byte)?;
         self.position += 2;
-        Ok(())
-    }
-
-    fn adjust_writer_to_next_ifd(&mut self) -> Result<()> {
-        if self.position + 1 > (1 << 32 - 1) {
-            return Ok(());
-        }
-
-        if self.position % 2 != 0 {
-            self.inner.write_all(&[0])?;
-            self.position += 1;
-        }
         Ok(())
     }
 }
@@ -241,6 +283,7 @@ impl TIFFValue {
             count: payload.0,
             payload: payload.1,
             value_type,
+            tag,
         })
     }
 }

@@ -26,92 +26,111 @@ struct WritingEntryPayload {
     value_type: u16,
 }
 
-pub struct TIFFWriter<W> {
-    inner: W,
+pub struct TIFFWriter {
+    write_buff: Vec<u8>,
     endian: Endian,
     ifds: Vec<HashMap<Tag, WritingEntryPayload>>,
     position: usize,
+    current_index: usize,
 }
 
-fn write_ifd_tag<'a, W: Write>(
-    w: &mut W,
+fn write_ifd_tag<'a>(
+    out_buff: &mut Vec<u8>,
     position: usize,
     endian: Endian,
     ifd: Vec<&'a WritingEntryPayload>,
-) -> Result<Vec<&'a WritingEntryPayload>> {
+) -> Vec<&'a WritingEntryPayload> {
     // Sort tag by value
-    let mut buff: [u8; 12] = [0; 12];
     let mut big_entries = Vec::new();
     let mut next_data_cursor = position + ifd.len() * 12 + 4; // +4 For the next offset
 
     for entry in ifd {
         // Writing
-
         // 1 - Tag
+
         let tag = endian.short_adjusted(entry.tag.tag_value());
-        buff.copy_from_slice(&tag);
+        println!("Writing tag {:?} -> {:?}", entry.tag, tag);
+        out_buff.extend_from_slice(&tag);
 
         // 2 - Type
         let value_type = endian.short_adjusted(entry.value_type);
-        buff[2..4].copy_from_slice(&value_type);
+        out_buff.extend_from_slice(&value_type);
 
         // 3 - Count
-        let count = endian.short_adjusted(entry.count as u16);
-        buff[4..6].copy_from_slice(&count);
+        let count = endian.long_adjusted(entry.count as u32);
+        out_buff.extend_from_slice(&count);
 
         // 4 - Offset/Value
-        if entry.payload.len() <= 4 {
-            buff[6..8].copy_from_slice(&entry.payload);
+        let diff = 4i16 - (entry.payload.len() as i16);
+        if diff >= 0 {
+            out_buff.extend_from_slice(&entry.payload);
+            if diff > 0 {
+                // 0 are on left for le(aka left justified)
+                let vec = vec![0; diff as usize];
+                out_buff.extend_from_slice(&vec);
+            }
         } else {
             // We need to compute the offset with the provided parameters
-            buff[6..8].copy_from_slice(&endian.short_adjusted(next_data_cursor as u16));
+            out_buff.extend_from_slice(&endian.short_adjusted(next_data_cursor as u16));
             next_data_cursor += entry.payload.len();
             big_entries.push(entry);
         }
     }
-    w.write_all(&buff)?;
-    Ok(big_entries)
+    big_entries
 }
 
-impl<W: Write> TIFFWriter<W> {
-    pub fn new<T>(inner: W, endian: Endian) -> TIFFWriter<W> {
+impl TIFFWriter {
+    /// Creates a new writer with a provided `Endian` with one directory to write in.
+    pub fn new(endian: Endian) -> TIFFWriter {
         TIFFWriter {
-            inner,
+            write_buff: Vec::new(),
             ifds: vec![HashMap::new()],
             position: 0 as usize,
+            current_index: 0 as usize,
             endian,
         }
     }
 
-    pub fn create_new_directory_after(&mut self, ifd: usize) -> Result<usize> {
-        if ifd >= self.ifds.len() {
-            Err(ErrorKind::OutOfBounds.into())
-        } else {
-            self.ifds.insert(ifd, HashMap::new());
-            Ok(self.ifds.len() - 1)
+    /// Creates a new directory at the provided index
+    pub fn insert_directory_at_index(&mut self, ifd: usize) {
+        if ifd > self.ifds.len() {
+            panic!("Out of range")
         }
+        self.ifds.insert(ifd, HashMap::new());
     }
 
-    pub fn set_field<F: Field>(&mut self, index: usize, f: &F) -> Result<()> {
+    pub fn set_current_directory_index(&mut self, index: usize) {
+        if index > self.ifds.len() - 1 {
+            panic!("Out of range")
+        }
+        self.current_index = index;
+    }
+
+    pub fn set_field<F: Field>(&mut self, f: &F) -> Result<()> {
         let value = match f.encode_to_value() {
             Some(val) => val,
             None => return Err(ErrorKind::EncodingError.into()),
         };
 
-        let entry = match value.convert_to_entry(F::tag(), self.endian) {
+        self.set_directory_field_for_tag(F::tag(), value)
+    }
+
+    pub fn set_directory_field_for_tag(&mut self, tag: Tag, value: TIFFValue) -> Result<()> {
+        let entry = match value.convert_to_entry(tag, self.endian) {
             Ok(val) => val,
             Err(_err) => return Err(ErrorKind::EncodingError.into()),
         };
-        self.ifds[index].insert(F::tag(), entry);
+        self.ifds[self.current_index].insert(tag, entry);
         Ok(())
     }
 
-    pub fn write(&mut self) -> Result<()> {
+    pub fn write<W: Write>(&mut self, f: &mut W) -> Result<()> {
         // Header
         self.write_header_magic()?;
 
         // First 0th Offset -> 8
-        self.inner.write_all(&self.endian.long_adjusted(8u32))?;
+        self.write_buff
+            .extend_from_slice(&self.endian.long_adjusted(8u32));
         self.position += 4;
 
         for ifd in &self.ifds {
@@ -121,35 +140,38 @@ impl<W: Write> TIFFWriter<W> {
             }
 
             if self.position % 2 != 0 {
-                self.inner.write_all(&[0])?;
+                self.write_buff.extend_from_slice(&[0]);
                 self.position += 1;
             }
 
             // Write ifd len
-            self.inner
-                .write_all(&self.endian.short_adjusted(ifd.len() as u16))?;
+            self.write_buff
+                .extend_from_slice(&self.endian.short_adjusted(ifd.len() as u16));
             self.position += 2;
 
             // Sort tag by value
-            let mut sorted_tags = ifd.keys().collect::<Vec<&Tag>>();
-            sorted_tags.sort_by(|a, b| a.tag_value().cmp(&b.tag_value()));
+            let mut sorted_entries: Vec<_> = ifd.iter().collect();
+            sorted_entries.sort_by(|a, b| a.0.tag_value().cmp(&b.0.tag_value()));
 
             // Create list to apply elements
             let entries: Vec<&WritingEntryPayload> =
-                ifd.into_iter().map(|(_, value)| value).collect();
+                sorted_entries.into_iter().map(|(_, value)| value).collect();
 
             // Write IFD tag list
-            let big_values = write_ifd_tag(&mut self.inner, self.position, self.endian, entries)?;
+            let big_values =
+                write_ifd_tag(&mut self.write_buff, self.position, self.endian, entries);
 
-            let all_big: Vec<u8> = big_values
+            let mut all_big: Vec<u8> = big_values
                 .iter()
                 .flat_map(|v| &v.payload)
                 .cloned()
                 .collect();
             // write_ifd_bigvalues(&mut self.inner, self.endian, &big_values_entries)?;
-            self.inner.write_all(&all_big)?;
+            self.write_buff.append(&mut all_big);
+            self.position += all_big.len();
         }
-        Ok(())
+        f.write_all(&self.write_buff)
+            .map_err(|e| ErrorKind::Io(e).into())
     }
 
     fn write_header_magic(&mut self) -> Result<()> {
@@ -159,8 +181,8 @@ impl<W: Write> TIFFWriter<W> {
             Endian::Big => TIFF_BE,
         };
 
-        self.inner
-            .write_all(&self.endian.short_adjusted(order_bytes))?;
+        self.write_buff
+            .extend_from_slice(&self.endian.short_adjusted(order_bytes));
         self.position += 2;
 
         let magic_byte = match self.endian {
@@ -168,7 +190,7 @@ impl<W: Write> TIFFWriter<W> {
             Endian::Big => 42u16.to_be_bytes(),
         };
 
-        self.inner.write_all(&magic_byte)?;
+        self.write_buff.extend_from_slice(&magic_byte);
         self.position += 2;
         Ok(())
     }
@@ -285,5 +307,45 @@ impl TIFFValue {
             value_type,
             tag,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TIFFWriter;
+    use reader::TIFFReader;
+    use std::fs::File;
+    use std::io::Cursor;
+
+    #[test]
+
+    fn test_read_write() {
+        let bytes: &[u8] = include_bytes!("../samples/arbitro_be.tiff");
+        let mut in_cursor = Cursor::new(bytes);
+        let mut read = TIFFReader::new(&mut in_cursor).unwrap();
+
+        let mut writer = TIFFWriter::new(read.endianness());
+
+        for i in 0..read.directories_count() {
+            if i > 1 {
+                read.set_directory_index(i);
+                writer.insert_directory_at_index(i);
+                writer.set_current_directory_index(i);
+            }
+
+            let tags = read.get_directory_tags();
+            for tag in tags {
+                let value = read.get_directory_value_from_tag(tag).unwrap();
+                println!(
+                    "Tag: {:?} (0x{:x}) - Value: {:?}",
+                    tag,
+                    tag.tag_value(),
+                    value
+                );
+                writer.set_directory_field_for_tag(tag, value).unwrap();
+            }
+        }
+        let mut file = File::create("test_output.tiff").unwrap();
+        writer.write(&mut file).unwrap();
     }
 }

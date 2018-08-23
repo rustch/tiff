@@ -170,8 +170,8 @@ macro_rules! short_long_value {
 
             fn decode_from_value(value: &TIFFValue) -> Option<$type> {
                 match value {
-                    TIFFValue::Short(el) => Some($type(u32::from(el[0]))),
-                    TIFFValue::Long(el) => Some($type(el[0])),
+                    TIFFValue::Short(el) if el.len() == 1 => Some($type(u32::from(el[0]))),
+                    TIFFValue::Long(el) if el.len() == 1 => Some($type(el[0])),
                     _ => None,
                 }
             }
@@ -201,7 +201,7 @@ macro_rules! short_value {
 
             fn decode_from_value(value: &TIFFValue) -> Option<$type> {
                 match value {
-                    TIFFValue::Short(el) => Some($type(el[0] as u16)),
+                    TIFFValue::Short(el) if el.len() == 1 => Some($type(el[0] as u16)),
                     _ => None,
                 }
             }
@@ -226,7 +226,7 @@ macro_rules! long_value {
 
             fn decode_from_value(value: &TIFFValue) -> Option<$type> {
                 match value {
-                    TIFFValue::Long(el) => Some($type(el[0])),
+                    TIFFValue::Long(el) if el.len() == 1 => Some($type(el[0])),
                     _ => None,
                 }
             }
@@ -275,7 +275,7 @@ macro_rules! rational_value {
 
             fn decode_from_value(value: &TIFFValue) -> Option<$type> {
                 match value {
-                    TIFFValue::Rational(el) => Some($type(el[0])),
+                    TIFFValue::Rational(el) if el.len() == 1 => Some($type(el[0])),
                     _ => None,
                 }
             }

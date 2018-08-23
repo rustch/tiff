@@ -7,13 +7,12 @@ use super::{TIFF_BE, TIFF_LE};
 use tag::Field;
 use value::{Rational, TIFFValue};
 
-use std::collections::hash_map::Keys;
 use std::collections::HashMap;
 use tag::Tag;
 
 /// An `IFDEntry` represents an **image file directory**
 /// mentionned inside the tiff specification. This is the base
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 struct IFDEntry {
     tag: Tag,
     value_type: u16,
@@ -31,8 +30,8 @@ impl<'a> IFD {
         self.read_entries.get(&tag)
     }
 
-    fn all_tags(&self) -> Keys<Tag, IFDEntry> {
-        self.read_entries.keys()
+    fn all_tags(&self) -> Vec<Tag> {
+        self.read_entries.keys().cloned().collect()
     }
 }
 
@@ -179,30 +178,155 @@ impl<R: Read + Seek> TIFFReader<R> {
         }
     }
 
+    /// Returns the number of available directories
+    pub fn directories_count(&self) -> usize {
+        self.ifds.len()
+    }
+
     /// Returns the endianness of the processed input.
     pub fn endianness(&self) -> Endian {
         self.endian
     }
 
     /// Look for a specific tag in all IFDS.
-    pub fn get_field<T: Field>(&mut self) -> Option<T> {
+    pub fn get_directory_field<T: Field>(&mut self) -> Option<T> {
         // Check if we have an entry inside any of the directory
-
         let tag = T::tag();
-        let ifd_entry = self.ifds[self.current_directory_index].get_entry_from_tag(tag)?;
-        let value = TIFFValue::new_from_entry(&mut self.inner, ifd_entry, self.endian).ok()?;
+        let value = self.get_directory_value_from_tag(tag)?;
         T::decode_from_value(&value)
     }
 
-    /// Set the current reading TIFF directory
-    pub fn set_directory_index(&mut self, index: usize) -> Result<()> {
-        if index > self.ifds.len() - 1 {
-            Err(ErrorKind::DirectoryIndexOutOfBounds.into())
-        } else {
-            self.current_directory_index = index;
-            Ok(())
-        }
+    /// Read the value from the reader corresponding to a tag
+    pub fn get_directory_value_from_tag(&mut self, tag: Tag) -> Option<TIFFValue> {
+        let ifd_entry = self.ifds[self.current_directory_index].get_entry_from_tag(tag)?;
+        TIFFValue::new_from_entry(&mut self.inner, ifd_entry, self.endian).ok()
     }
+
+    /// Returns the list of tags included in the current directory
+    pub fn get_directory_tags(&self) -> Vec<Tag> {
+        self.ifds[self.current_directory_index].all_tags()
+    }
+
+    /// Set the current reading TIFF directory
+    pub fn set_directory_index(&mut self, index: usize) {
+        if index > self.ifds.len() - 1 {
+            panic!("Invalid directory index")
+        }
+        self.current_directory_index = index;
+    }
+}
+
+fn read_n_bytes<R: Read + Seek>(
+    reader: &mut R,
+    entry: &IFDEntry,
+    size: usize,
+    endian: Endian,
+) -> Result<Vec<u8>> {
+    if size <= 4 {
+        // We need to extract data from value_offset
+        let mut bytes = endian.long_adjusted(entry.value_offset).to_vec();
+        bytes.truncate(size);
+        // let bytes = entry.value_offset.to_be_bytes()[4 - size..].to_vec();
+        Ok(bytes)
+    } else {
+        reader.seek(SeekFrom::Start(u64::from(entry.value_offset)))?;
+        let mut vec: Vec<u8> = vec![0; size];
+        reader.read_exact(&mut vec)?;
+        Ok(vec)
+    }
+}
+
+fn read_ascii<R: Read + Seek>(
+    reader: &mut R,
+    entry: &IFDEntry,
+    endian: Endian,
+) -> Result<Vec<String>> {
+    let bytes = read_n_bytes(reader, entry, entry.count as usize, endian)?;
+
+    // Splits by null cahracter
+    bytes
+        .split(|e| *e == b'0')
+        .map(|a| String::from_utf8(a.to_vec()).map_err(|e| ErrorKind::AsciiFormat(e).into()))
+        .collect()
+}
+
+fn read_short<R: Read + Seek, T: Short>(
+    reader: &mut R,
+    entry: &IFDEntry,
+    endian: Endian,
+) -> Result<Vec<T>> {
+    let mut conv_buff: [u8; 2] = [0; 2];
+    let size = entry.count * 2;
+    let bytes = read_n_bytes(reader, entry, size as usize, endian)?;
+
+    let elements = bytes
+        .chunks(2)
+        .map(|e| {
+            conv_buff.copy_from_slice(e);
+            endian.short_from_bytes::<T>(conv_buff)
+        }).collect();
+
+    Ok(elements)
+}
+
+fn read_long<R: Read + Seek, T: Long>(
+    reader: &mut R,
+    entry: &IFDEntry,
+    endian: Endian,
+) -> Result<Vec<T>> {
+    let mut conv_buff: [u8; 4] = [0; 4];
+    let size = entry.count * 4;
+    let bytes = read_n_bytes(reader, entry, size as usize, endian)?;
+
+    let elements: Vec<T> = bytes
+        .chunks(4)
+        .map(|e| {
+            conv_buff.copy_from_slice(e);
+            endian.long_from_bytes::<T>(conv_buff)
+        }).collect();
+    Ok(elements)
+}
+
+fn read_long_long<R: Read + Seek, T: LongLong>(
+    reader: &mut R,
+    entry: &IFDEntry,
+    endian: Endian,
+) -> Result<Vec<T>> {
+    let mut conv_buff: [u8; 8] = [0; 8];
+    let size = entry.count * 8;
+    let bytes = read_n_bytes(reader, entry, size as usize, endian)?;
+
+    let elements: Vec<T> = bytes
+        .chunks(8)
+        .map(|e| {
+            conv_buff.copy_from_slice(e);
+            endian.longlong_from_bytes::<T>(conv_buff)
+        }).collect();
+    Ok(elements)
+}
+
+fn read_rational<R: Read + Seek, T: Long>(
+    reader: &mut R,
+    entry: &IFDEntry,
+    endian: Endian,
+) -> Result<Vec<Rational<T>>> {
+    let size = entry.count * 8;
+    let mut conv_buff: [u8; 4] = [0; 4];
+    let bytes = read_n_bytes(reader, entry, size as usize, endian)?;
+
+    let elements: Vec<T> = bytes
+        .chunks(4)
+        .map(|e| {
+            conv_buff.copy_from_slice(e);
+            endian.long_from_bytes::<T>(conv_buff)
+        }).collect();
+
+    Ok(elements
+        .chunks(2)
+        .map(|e| Rational {
+            num: e[0],
+            denom: e[1],
+        }).collect())
 }
 
 impl TIFFValue {
@@ -213,181 +337,64 @@ impl TIFFValue {
     ) -> Result<TIFFValue> {
         match entry.value_type {
             1 => {
-                let bytes = TIFFValue::read_n_bytes(reader, entry, entry.count as usize)?;
+                let bytes = read_n_bytes(reader, entry, entry.count as usize, endian)?;
                 Ok(TIFFValue::Byte(bytes))
             }
 
             2 => {
-                let values = TIFFValue::read_ascii(reader, entry)?;
+                let values = read_ascii(reader, entry, endian)?;
                 Ok(TIFFValue::Ascii(values))
             }
 
             3 => {
-                let values = TIFFValue::read_short(reader, entry, endian)?;
+                let values = read_short(reader, entry, endian)?;
                 Ok(TIFFValue::Short(values))
             }
 
             4 => {
-                let values = TIFFValue::read_long(reader, entry, endian)?;
+                let values = read_long(reader, entry, endian)?;
                 Ok(TIFFValue::Long(values))
             }
 
             5 => {
-                let values = TIFFValue::read_rational(reader, entry, endian)?;
+                let values = read_rational(reader, entry, endian)?;
                 Ok(TIFFValue::Rational(values))
             }
 
             6 => {
-                let mut bytes = TIFFValue::read_n_bytes(reader, entry, entry.count as usize)?;
+                let mut bytes = read_n_bytes(reader, entry, entry.count as usize, endian)?;
                 let result = bytes.iter().map(|i| *i as i8).collect();
                 Ok(TIFFValue::SByte(result))
             }
 
             8 => {
-                let values = TIFFValue::read_short(reader, entry, endian)?;
+                let values = read_short(reader, entry, endian)?;
                 Ok(TIFFValue::SShort(values))
             }
 
             9 => {
-                let values = TIFFValue::read_long(reader, entry, endian)?;
+                let values = read_long(reader, entry, endian)?;
                 Ok(TIFFValue::SLong(values))
             }
             10 => {
-                let values = TIFFValue::read_rational(reader, entry, endian)?;
+                let values = read_rational(reader, entry, endian)?;
                 Ok(TIFFValue::SRational(values))
             }
             11 => {
-                let values: Vec<u32> = TIFFValue::read_long(reader, entry, endian)?;
+                let values: Vec<u32> = read_long(reader, entry, endian)?;
                 let result = values.iter().map(|i| f32::from_bits(*i)).collect();
                 Ok(TIFFValue::Float(result))
             }
             12 => {
-                let values: Vec<u64> = TIFFValue::read_long_long(reader, entry, endian)?;
+                let values: Vec<u64> = read_long_long(reader, entry, endian)?;
                 let result = values.iter().map(|i| f64::from_bits(*i)).collect();
                 Ok(TIFFValue::Double(result))
             }
             _ => {
-                let bytes = TIFFValue::read_n_bytes(reader, entry, entry.count as usize)?;
+                let bytes = read_n_bytes(reader, entry, entry.count as usize, endian)?;
                 Ok(TIFFValue::Undefined(bytes))
             }
         }
-    }
-    fn read_n_bytes<R: Read + Seek>(
-        reader: &mut R,
-        entry: &IFDEntry,
-        size: usize,
-    ) -> Result<Vec<u8>> {
-        if size <= 4 {
-            let bytes = entry.value_offset.to_ne_bytes();
-            Ok(bytes.to_vec())
-        } else {
-            reader.seek(SeekFrom::Start(u64::from(entry.value_offset)))?;
-            let mut vec: Vec<u8> = vec![0; size];
-            reader.read_exact(&mut vec)?;
-            Ok(vec)
-        }
-    }
-
-    fn read_ascii<R: Read + Seek>(reader: &mut R, entry: &IFDEntry) -> Result<Vec<String>> {
-        let bytes = TIFFValue::read_n_bytes(reader, entry, entry.count as usize)?;
-
-        // Splits by null cahracter
-        bytes
-            .split(|e| *e == b'0')
-            .map(|a| String::from_utf8(a.to_vec()).map_err(|e| ErrorKind::AsciiFormat(e).into()))
-            .collect()
-    }
-
-    fn read_short<R: Read + Seek, T: Short>(
-        reader: &mut R,
-        entry: &IFDEntry,
-        endian: Endian,
-    ) -> Result<Vec<T>> {
-        let mut conv_buff: [u8; 2] = [0; 2];
-        let size = entry.count * 2;
-        let mut bytes = TIFFValue::read_n_bytes(reader, entry, size as usize)?;
-
-        if endian == Endian::Big && size <= 4 {
-            bytes.reverse()
-        }
-
-        let elements: Vec<T> = bytes
-            .chunks(2)
-            .map(|e| {
-                conv_buff.copy_from_slice(e);
-
-                endian.short_from_bytes::<T>(conv_buff)
-            }).collect();
-
-        Ok(elements)
-    }
-
-    fn read_long<R: Read + Seek, T: Long>(
-        reader: &mut R,
-        entry: &IFDEntry,
-        endian: Endian,
-    ) -> Result<Vec<T>> {
-        let mut conv_buff: [u8; 4] = [0; 4];
-        let size = entry.count * 4;
-        let mut bytes = TIFFValue::read_n_bytes(reader, entry, size as usize)?;
-
-        if endian == Endian::Big && size <= 4 {
-            bytes.reverse()
-        }
-
-        let elements: Vec<T> = bytes
-            .chunks(4)
-            .map(|e| {
-                conv_buff.copy_from_slice(e);
-                endian.long_from_bytes::<T>(conv_buff)
-            }).collect();
-        Ok(elements)
-    }
-
-    fn read_long_long<R: Read + Seek, T: LongLong>(
-        reader: &mut R,
-        entry: &IFDEntry,
-        endian: Endian,
-    ) -> Result<Vec<T>> {
-        let mut conv_buff: [u8; 8] = [0; 8];
-        let size = entry.count * 8;
-        let mut bytes = TIFFValue::read_n_bytes(reader, entry, size as usize)?;
-
-        if endian == Endian::Big && size <= 8 {
-            bytes.reverse()
-        }
-
-        let elements: Vec<T> = bytes
-            .chunks(8)
-            .map(|e| {
-                conv_buff.copy_from_slice(e);
-                endian.longlong_from_bytes::<T>(conv_buff)
-            }).collect();
-        Ok(elements)
-    }
-
-    fn read_rational<R: Read + Seek, T: Long>(
-        reader: &mut R,
-        entry: &IFDEntry,
-        endian: Endian,
-    ) -> Result<Vec<Rational<T>>> {
-        let size = entry.count * 8;
-        let mut conv_buff: [u8; 4] = [0; 4];
-        let bytes = TIFFValue::read_n_bytes(reader, entry, size as usize)?;
-
-        let elements: Vec<T> = bytes
-            .chunks(4)
-            .map(|e| {
-                conv_buff.copy_from_slice(e);
-                endian.long_from_bytes::<T>(conv_buff)
-            }).collect();
-
-        Ok(elements
-            .chunks(2)
-            .map(|e| Rational {
-                num: e[0],
-                denom: e[1],
-            }).collect())
     }
 }
 
@@ -403,10 +410,22 @@ mod tests {
     macro_rules! ensure_field {
         ($read:expr, $type:ty) => {
             $read
-                .get_field::<$type>()
+                .get_directory_field::<$type>()
                 .expect(stringify!("We expect to be able to read" $type))
         };
     }
+
+    #[test]
+    fn test_iterator() {
+        let bytes: &[u8] = include_bytes!("../samples/arbitro_be.tiff");
+        let mut cursor = Cursor::new(bytes);
+        let mut iter = IFDIterator::new(&mut cursor, 0x1900, Endian::Big);
+
+        let first_dict = iter.next().unwrap();
+        let entry = first_dict.get_entry_from_tag(Tag::ImageWidth).unwrap();
+        assert_eq!(entry.value_offset, 11403264);
+    }
+
     #[test]
     fn test_sample_be() {
         let bytes: &[u8] = include_bytes!("../samples/arbitro_be.tiff");
@@ -440,6 +459,7 @@ mod tests {
     }
 
     #[test]
+
     fn test_sample_le() {
         let bytes: &[u8] = include_bytes!("../samples/picoawards_le.tiff");
         let mut cursor = Cursor::new(bytes);

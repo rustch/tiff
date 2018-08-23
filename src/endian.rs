@@ -263,21 +263,22 @@ impl<'a, R: Read> EndianReader<'a, R> {
 mod tests {
     use super::*;
     use std::io::Cursor;
+
     #[test]
-    fn test_reader() {
+    fn test_endian_reader() {
         let bytes: Vec<u8> = vec![0x11, 0x22, 0x33, 0x44, 0x55, 0x66];
         let mut cursor = Cursor::new(&bytes);
         {
             let mut be_reader = EndianReader::new(&mut cursor, Endian::Big);
             assert_eq!(0x1122u16, be_reader.read_short().unwrap());
-            assert_eq!(0x33445566u32, be_reader.read_long().unwrap());
+            assert_eq!(0x33_44_55_66u32, be_reader.read_long().unwrap());
         }
 
         cursor.set_position(0);
         {
             let mut le_reader = EndianReader::new(&mut cursor, Endian::Little);
             assert_eq!(0x2211u16, le_reader.read_short().unwrap());
-            assert_eq!(0x66554433u32, le_reader.read_long().unwrap());
+            assert_eq!(0x66_55_44_33u32, le_reader.read_long().unwrap());
         }
     }
 }

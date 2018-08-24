@@ -43,39 +43,40 @@ fn write_ifd_tag<'a>(
     // Sort tag by value
     let mut big_entries = Vec::new();
     let mut next_data_cursor = position + ifd.len() * 12 + 4; // +4 For the next offset
+    let mut tag_data = Vec::new();
 
     for entry in ifd {
         // Writing
         // 1 - Tag
-
         let tag = endian.short_adjusted(entry.tag.tag_value());
-        println!("Writing tag {:?} -> {:?}", entry.tag, tag);
-        out_buff.extend_from_slice(&tag);
+        tag_data.extend_from_slice(&tag);
 
         // 2 - Type
         let value_type = endian.short_adjusted(entry.value_type);
-        out_buff.extend_from_slice(&value_type);
+        tag_data.extend_from_slice(&value_type);
 
         // 3 - Count
         let count = endian.long_adjusted(entry.count as u32);
-        out_buff.extend_from_slice(&count);
+        tag_data.extend_from_slice(&count);
 
         // 4 - Offset/Value
         let diff = 4i16 - (entry.payload.len() as i16);
         if diff >= 0 {
-            out_buff.extend_from_slice(&entry.payload);
+            tag_data.extend_from_slice(&entry.payload);
             if diff > 0 {
                 // 0 are on left for le(aka left justified)
                 let vec = vec![0; diff as usize];
-                out_buff.extend_from_slice(&vec);
+                tag_data.extend_from_slice(&vec);
             }
         } else {
             // We need to compute the offset with the provided parameters
-            out_buff.extend_from_slice(&endian.short_adjusted(next_data_cursor as u16));
+            tag_data.extend_from_slice(&endian.long_adjusted(next_data_cursor as u32));
             next_data_cursor += entry.payload.len();
             big_entries.push(entry);
         }
+        out_buff.append(&mut tag_data);
     }
+
     big_entries
 }
 
@@ -133,7 +134,7 @@ impl TIFFWriter {
             .extend_from_slice(&self.endian.long_adjusted(8u32));
         self.position += 4;
 
-        for ifd in &self.ifds {
+        for (index, ifd) in self.ifds.iter().enumerate() {
             // Adjust position
             if self.position + 1 > (1 << (32 - 1)) {
                 return Ok(());
@@ -153,21 +154,39 @@ impl TIFFWriter {
             let mut sorted_entries: Vec<_> = ifd.iter().collect();
             sorted_entries.sort_by(|a, b| a.0.tag_value().cmp(&b.0.tag_value()));
 
-            // Create list to apply elements
+            // Write IFD
             let entries: Vec<&WritingEntryPayload> =
                 sorted_entries.into_iter().map(|(_, value)| value).collect();
-
-            // Write IFD tag list
+            let entries_size = entries.len() * 12;
             let big_values =
                 write_ifd_tag(&mut self.write_buff, self.position, self.endian, entries);
+            self.position += entries_size;
 
+            // Write data
             let mut all_big: Vec<u8> = big_values
                 .iter()
                 .flat_map(|v| &v.payload)
                 .cloned()
                 .collect();
+
+            // Write Next Offset
+            let mut next_available_space = if index == self.ifds.len() - 1 {
+                0
+            } else {
+                self.position + all_big.len() + 1
+            };
+
+            if next_available_space % 2 != 0 {
+                next_available_space += 1;
+            }
+
+            let next_offset = &self.endian.long_adjusted(next_available_space as u32);
+            self.write_buff.extend_from_slice(next_offset);
+            self.position += next_offset.len();
+
             // write_ifd_bigvalues(&mut self.inner, self.endian, &big_values_entries)?;
             self.write_buff.append(&mut all_big);
+
             self.position += all_big.len();
         }
         f.write_all(&self.write_buff)
@@ -336,12 +355,6 @@ mod tests {
             let tags = read.get_directory_tags();
             for tag in tags {
                 let value = read.get_directory_value_from_tag(tag).unwrap();
-                println!(
-                    "Tag: {:?} (0x{:x}) - Value: {:?}",
-                    tag,
-                    tag.tag_value(),
-                    value
-                );
                 writer.set_directory_field_for_tag(tag, value).unwrap();
             }
         }

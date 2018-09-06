@@ -40,7 +40,7 @@ pub mod baseline {
             })
         }
 
-        pub fn stripes_iter(self) -> StripesIter<R> {
+        pub fn stripes_iter(&mut self) -> StripesIter<R> {
             StripesIter {
                 image: self,
                 index: 0,
@@ -48,12 +48,12 @@ pub mod baseline {
         }
     }
 
-    pub struct StripesIter<R> {
-        image: Image<R>,
+    pub struct StripesIter<'a, R: 'a> {
+        image: &'a mut Image<R>,
         index: usize,
     }
 
-    impl<R: Read + Seek> Iterator for StripesIter<R> {
+    impl<'a, R: Read + Seek> Iterator for StripesIter<'a, R> {
         type Item = Vec<u8>;
         fn next(&mut self) -> Option<Vec<u8>> {
             if self.index >= self.image.stripes_bytes_count.0.len() {
@@ -72,5 +72,22 @@ pub mod baseline {
             self.index += 1;
             Some(buff)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+
+    #[test]
+    fn test_read_baseline() {
+        let bytes: &[u8] = include_bytes!("../samples/ycbcr-cat.tif");
+        let mut cursor = Cursor::new(bytes);
+        let mut image =
+            baseline::Image::new(&mut cursor).expect("Should be a valid baseline image");
+
+        let stripes: Vec<Vec<u8>> = image.stripes_iter().collect();
+        println!("Stripes Count: {:?}", stripes.len());
     }
 }

@@ -12,6 +12,7 @@ extern crate chrono;
 extern crate error_chain;
 
 mod endian;
+mod image;
 mod reader;
 mod value;
 mod writer;
@@ -19,5 +20,6 @@ mod writer;
 pub use endian::{BE, LE};
 
 pub mod tag;
+pub use image::baseline::Image;
 pub use reader::TIFFReader;
 pub use writer::TIFFWriter;

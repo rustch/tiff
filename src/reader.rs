@@ -115,8 +115,8 @@ error_chain!{
             description("Invalid TIFF file"),
             display("INvalid TIFF File: {}", v),
         }
-
         DirectoryIndexOutOfBounds
+        ErrorDecodingField
     }
 }
 
@@ -213,6 +213,10 @@ impl<R: Read + Seek> TIFFReader<R> {
             panic!("Invalid directory index")
         }
         self.current_directory_index = index;
+    }
+
+    pub fn reader_as_ref(&mut self) -> &mut R {
+        &mut self.inner
     }
 }
 

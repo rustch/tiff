@@ -40,7 +40,7 @@ pub mod baseline {
             })
         }
 
-        pub fn stripes_iter(&mut self) -> StripesIter<R> {
+        pub fn stripes_iter(self) -> StripesIter<R> {
             StripesIter {
                 image: self,
                 index: 0,
@@ -48,12 +48,12 @@ pub mod baseline {
         }
     }
 
-    pub struct StripesIter<'a, R: 'a> {
-        image: &'a mut Image<R>,
+    pub struct StripesIter<R> {
+        image: Image<R>,
         index: usize,
     }
 
-    impl<'a, R: Read + Seek> Iterator for StripesIter<'a, R> {
+    impl<R: Read + Seek> Iterator for StripesIter<R> {
         type Item = Vec<u8>;
         fn next(&mut self) -> Option<Vec<u8>> {
             if self.index >= self.image.stripes_bytes_count.0.len() {
@@ -61,7 +61,7 @@ pub mod baseline {
             }
 
             let reader = self.image.inner.reader_as_ref();
-            let offset = self.image.stripes_offsets.0[self.index] as u64;
+            let offset = u64::from(self.image.stripes_offsets.0[self.index]);
             let count = self.image.stripes_bytes_count.0[self.index] as usize;
 
             let mut buff = vec![0; count];
@@ -84,10 +84,8 @@ mod tests {
     fn test_read_baseline() {
         let bytes: &[u8] = include_bytes!("../samples/ycbcr-cat.tif");
         let mut cursor = Cursor::new(bytes);
-        let mut image =
-            baseline::Image::new(&mut cursor).expect("Should be a valid baseline image");
-
+        let image = baseline::Image::new(&mut cursor).expect("Should be a valid baseline image");
         let stripes: Vec<Vec<u8>> = image.stripes_iter().collect();
-        println!("Stripes Count: {:?}", stripes.len());
+        assert!(!stripes.is_empty());
     }
 }

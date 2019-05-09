@@ -355,6 +355,7 @@ mod tests {
             let tags = read.get_directory_tags();
             for tag in tags {
                 let value = read.get_directory_value_from_tag(tag).unwrap();
+                println!("{:?}", value);
                 writer.set_directory_field_for_tag(tag, value).unwrap();
             }
         }
